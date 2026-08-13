@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "歌枠時間軸",
+  "description": "從 YouTube 說明欄、已載入留言或貼上的文字建立可循環播放的歌枠 Setlist。",
+  "version": "0.1.0",
+  "minimum_chrome_version": "114",
+  "permissions": ["sidePanel", "storage"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "開啟歌枠時間軸"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: https://i.ytimg.com"
+  }
+}

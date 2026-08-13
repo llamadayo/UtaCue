@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>歌枠時間軸</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <main class="app-shell" id="app">
+      <header class="app-header">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M5 8h14M5 15h14M5 22h10M19 11v13.5a4 4 0 1 0 2.5 3.7V8l6 3.3"/>
+          </svg>
+          <h1>歌枠時間軸</h1>
+        </div>
+        <button class="icon-button" id="header-settings" type="button" aria-label="設定" title="設定">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2A3.8 3.8 0 1 0 12 15.8 3.8 3.8 0 0 0 12 8.2ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+        </button>
+      </header>
+
+      <section class="video-meta" aria-label="目前影片">
+        <img id="video-thumbnail" src="fallback-thumbnail.png" alt="目前影片縮圖">
+        <div class="video-copy">
+          <h2 id="video-title">請開啟 YouTube 影片</h2>
+          <p id="video-channel">等待影片資訊</p>
+          <p class="video-duration" id="video-duration">--:--</p>
+        </div>
+      </section>
+
+      <section class="source-panel" aria-labelledby="source-label">
+        <div class="section-heading">
+          <label id="source-label" for="source-select">時間軸來源</label>
+          <button class="text-button" id="paste-open" type="button">貼上時間軸</button>
+        </div>
+        <div class="source-row">
+          <select id="source-select" aria-label="時間軸來源" disabled>
+            <option>尚無來源</option>
+          </select>
+          <button class="icon-button scan-button" id="scan-button" type="button" aria-label="掃描目前頁面" title="掃描目前頁面">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.6L20 9M4 15l2.6 2.6A7 7 0 0 0 17.9 15"/></svg>
+          </button>
+        </div>
+        <div class="status-row">
+          <span class="status-dot" aria-hidden="true"></span>
+          <p id="status-message" role="status">尚未建立歌單</p>
+          <label class="hidden-toggle"><input id="show-hidden" type="checkbox"> 顯示隱藏</label>
+        </div>
+      </section>
+
+      <section class="timeline-region" aria-label="歌曲時間軸">
+        <div id="empty-state" class="empty-state">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M13 10h22M13 20h22M13 30h13M31 27v10a5 5 0 1 1-3-4.6V24l8 4"/></svg>
+          <h2>建立這部影片的歌單</h2>
+          <p>先掃描已載入的說明欄與留言，找不到時也可以直接貼上時間軸。</p>
+          <div class="empty-actions">
+            <button class="primary-button" id="empty-scan" type="button">掃描目前頁面</button>
+            <button class="secondary-button" id="empty-paste" type="button">貼上時間軸</button>
+          </div>
+        </div>
+        <div id="timeline" class="timeline" hidden></div>
+      </section>
+
+      <section class="player-panel" id="player-panel" aria-label="播放控制" hidden>
+        <div class="now-playing-row">
+          <div>
+            <p class="eyeline">播放中</p>
+            <h2 id="now-title">—</h2>
+            <p id="now-range">--:-- — --:--</p>
+          </div>
+          <label class="switch-label">單曲循環
+            <input id="loop-toggle" type="checkbox" checked>
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="progress-row">
+          <span id="progress-current">--:--</span>
+          <input id="progress" type="range" min="0" max="1000" value="0" aria-label="播放進度">
+          <span id="progress-end">--:--</span>
+        </div>
+        <div class="transport">
+          <button class="transport-button" id="previous-button" type="button" aria-label="上一首">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M19 6l-9 6 9 6V6Z"/></svg>
+          </button>
+          <button class="play-button" id="play-button" type="button" aria-label="播放或暫停">
+            <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6v12M16 6v12"/></svg>
+            <svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z"/></svg>
+          </button>
+          <button class="transport-button" id="next-button" type="button" aria-label="下一首">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M5 6l9 6-9 6V6Z"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <footer class="app-footer">
+        <button id="footer-scan" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.6L20 9M4 15l2.6 2.6A7 7 0 0 0 17.9 15"/></svg>
+          重新掃描
+        </button>
+        <span class="footer-divider" aria-hidden="true"></span>
+        <button id="footer-settings" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.2A3.8 3.8 0 1 0 12 15.8 3.8 3.8 0 0 0 12 8.2ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+          設定
+        </button>
+      </footer>
+    </main>
+
+    <dialog id="paste-dialog">
+      <form method="dialog" id="paste-form">
+        <div class="dialog-heading">
+          <div><p class="eyeline">手動來源</p><h2>貼上時間軸</h2></div>
+          <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        </div>
+        <label>來源名稱（選填）<input id="paste-author" type="text" placeholder="例如：@music_fan"></label>
+        <label>時間軸文字<textarea id="paste-text" rows="13" required placeholder="4:05 歌曲名稱&#10;11:34 下一首歌"></textarea></label>
+        <p class="form-hint">支援 m:ss、mm:ss 與 h:mm:ss；時間倒退時會自動建立附加區塊。</p>
+        <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit">取消</button><button class="primary-button" value="default" type="submit">建立歌單</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="edit-dialog">
+      <form method="dialog" id="edit-form">
+        <div class="dialog-heading">
+          <div><p class="eyeline">時間軸項目</p><h2>編輯項目</h2></div>
+          <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        </div>
+        <input id="edit-id" type="hidden">
+        <label>標題<input id="edit-title" type="text" required></label>
+        <div class="field-grid">
+          <label>開始時間<input id="edit-start" type="text" inputmode="numeric" required placeholder="08:42"></label>
+          <label>自訂結束<input id="edit-end" type="text" inputmode="numeric" placeholder="留白為自動"></label>
+        </div>
+        <label>類型<select id="edit-kind"><option value="song">歌曲</option><option value="chapter">段落</option><option value="note">註記</option><option value="hidden">隱藏</option></select></label>
+        <p class="form-hint">段落會結束前一首歌；註記只供跳轉，不影響循環界線。</p>
+        <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit">取消</button><button class="primary-button" value="default" type="submit">儲存變更</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="diff-dialog">
+      <form method="dialog" id="diff-form">
+        <div class="dialog-heading"><div><p class="eyeline">重新掃描</p><h2>套用掃描結果？</h2></div></div>
+        <p class="dialog-copy">人工修改的標題、類型與時間會保留。</p>
+        <div class="diff-grid"><div><strong id="diff-added">0</strong><span>新增</span></div><div><strong id="diff-changed">0</strong><span>變更</span></div><div><strong id="diff-removed">0</strong><span>移除</span></div></div>
+        <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit">保留目前歌單</button><button class="primary-button" value="default" type="submit">套用更新</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="settings-dialog">
+      <form method="dialog" id="settings-form">
+        <div class="dialog-heading">
+          <div><p class="eyeline">本機資料</p><h2>設定與備份</h2></div>
+          <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+        </div>
+        <section class="settings-section"><h3>JSON 備份</h3><p>歌單只存在這台瀏覽器。可匯出備份或分享整理結果。</p><div class="button-row"><button class="secondary-button" id="export-current" type="button">匯出目前影片</button><button class="secondary-button" id="export-all" type="button">匯出全部</button></div><label class="file-button">匯入 JSON<input id="import-file" type="file" accept="application/json,.json"></label></section>
+        <section class="settings-section danger-zone"><h3>清除資料</h3><div class="button-row"><button class="danger-button" id="clear-current" type="button">清除目前影片</button><button class="danger-button" id="clear-all" type="button">清除全部</button></div></section>
+        <p class="form-hint" id="settings-status" role="status">不會將任何資料傳送到外部服務。</p>
+      </form>
+    </dialog>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
