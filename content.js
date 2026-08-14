@@ -1,5 +1,6 @@
 (() => {
   let lastVideoId = null;
+  let lastContextSignature = null;
   let loopConfig = null;
   let lastPlaybackBroadcast = 0;
 
@@ -42,7 +43,10 @@
         "ytd-channel-name a"
       ]),
       durationSeconds: duration,
-      thumbnailUrl: metaThumbnail || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : ""),
+      // YouTube updates Open Graph metadata after SPA navigation. Prefer the URL
+      // derived from the current video ID so the previous video's image cannot
+      // remain visible while the rest of the watch page is being replaced.
+      thumbnailUrl: videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : (metaThumbnail || ""),
       hasVideo: Boolean(video),
       canLoop: Boolean(video && duration && duration !== Infinity),
       isLive: Boolean(video && (!duration || duration === Infinity))
@@ -93,12 +97,28 @@
     }
   }
 
+  function contextSignature(context) {
+    return JSON.stringify([
+      context.videoId,
+      context.videoTitle,
+      context.channelName,
+      context.durationSeconds,
+      context.thumbnailUrl,
+      context.hasVideo,
+      context.canLoop,
+      context.isLive
+    ]);
+  }
+
   function announceContext() {
     const context = getContext();
     if (context.videoId !== lastVideoId) {
       loopConfig = null;
       lastVideoId = context.videoId;
     }
+    const signature = contextSignature(context);
+    if (signature === lastContextSignature) return;
+    lastContextSignature = signature;
     emit({ type: "PAGE_CONTEXT_CHANGED", context });
   }
 
@@ -182,7 +202,10 @@
     if (!document.hidden) announceContext();
   });
   setInterval(() => {
-    if (getVideoId() !== lastVideoId) announceContext();
+    // A YouTube SPA navigation can expose the new video ID before its title and
+    // channel nodes update. Keep checking the complete context so the side panel
+    // receives the later metadata update for the same video ID.
+    announceContext();
     tickPlayback();
   }, 250);
 
