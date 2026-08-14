@@ -110,12 +110,12 @@
       <form method="dialog" id="paste-form">
         <div class="dialog-heading">
           <div><p class="eyeline">手動來源</p><h2>貼上時間軸</h2></div>
-          <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+          <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit" formnovalidate><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
         </div>
         <label>來源名稱（選填）<input id="paste-author" type="text" placeholder="例如：@music_fan"></label>
         <label>時間軸文字<textarea id="paste-text" rows="13" required placeholder="4:05 歌曲名稱&#10;11:34 下一首歌"></textarea></label>
         <p class="form-hint">支援 m:ss、mm:ss 與 h:mm:ss；時間倒退時會自動建立附加區塊。</p>
-        <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit">取消</button><button class="primary-button" value="default" type="submit">建立歌單</button></div>
+        <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit" formnovalidate>取消</button><button class="primary-button" value="default" type="submit">建立歌單</button></div>
       </form>
     </dialog>
 
