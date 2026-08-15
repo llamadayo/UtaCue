@@ -28,9 +28,11 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 
 .app-shell { height: 100vh; min-height: 580px; display: grid; grid-template-rows: auto auto auto minmax(110px, 1fr) auto auto; overflow: hidden; background: var(--bg); }
 .app-header { height: 64px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand h1 { margin: 0; font-size: 20px; line-height: 1; letter-spacing: .02em; font-weight: 750; }
-.brand-mark { width: 27px; height: 27px; color: var(--accent); stroke-width: 2.3; }
+.brand { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.brand-copy { min-width: 0; }
+.brand h1 { margin: 0; font-size: 18px; line-height: 1.05; letter-spacing: .01em; font-weight: 780; }
+.brand p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1; letter-spacing: .025em; white-space: nowrap; }
+.brand-mark { width: 32px; height: 32px; flex: 0 0 auto; display: block; object-fit: contain; filter: drop-shadow(0 4px 10px rgba(255, 91, 97, .16)); }
 .icon-button { width: 38px; height: 38px; border: 0; border-radius: 50%; display: inline-grid; place-items: center; background: transparent; color: var(--text); }
 .icon-button:hover { background: var(--surface-raised); }
 .icon-button:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--lavender); outline-offset: 2px; }
@@ -172,6 +174,7 @@ textarea { min-height: 190px; margin-top: 7px; padding: 12px; resize: vertical; 
 
 @media (max-width: 350px) {
   .app-header, .source-panel { padding-inline: 15px; }
+  .brand p { font-size: 9px; }
   .video-meta { grid-template-columns: 98px minmax(0, 1fr); padding-inline: 15px; gap: 13px; }
   .video-meta img { width: 98px; }
   .timeline-row { grid-template-columns: 63px minmax(0, 1fr) 31px; padding-left: 15px; gap: 7px; }

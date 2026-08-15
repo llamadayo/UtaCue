@@ -586,12 +586,12 @@ function bindEvents() {
 
   document.getElementById("export-current").addEventListener("click", async () => {
     const payload = await backupPayload(true);
-    downloadJson(payload, `歌枠時間軸-${state.context?.videoId || "current"}.json`);
+    downloadJson(payload, `UtaCue-${state.context?.videoId || "current"}.json`);
     elements.settingsStatus.textContent = `已匯出 ${payload.records.length} 份歌單。`;
   });
   document.getElementById("export-all").addEventListener("click", async () => {
     const payload = await backupPayload(false);
-    downloadJson(payload, "歌枠時間軸-backup.json");
+    downloadJson(payload, "UtaCue-backup.json");
     elements.settingsStatus.textContent = `已匯出 ${payload.records.length} 份歌單。`;
   });
   elements.importFile.addEventListener("change", async () => {
