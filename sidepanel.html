@@ -31,13 +31,17 @@
 
       <section class="source-panel" aria-labelledby="source-label">
         <div class="section-heading">
-          <label id="source-label" for="source-select">時間軸來源</label>
+          <span id="source-label">時間軸來源</span>
           <button class="text-button" id="paste-open" type="button">貼上時間軸</button>
         </div>
         <div class="source-row">
-          <select id="source-select" aria-label="時間軸來源" disabled>
-            <option>尚無來源</option>
-          </select>
+          <div class="source-picker" id="source-picker">
+            <button class="source-trigger" id="source-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="source-options" disabled>
+              <span id="source-current">尚無來源</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
+            </button>
+            <div class="source-options" id="source-options" role="listbox" aria-labelledby="source-label" hidden></div>
+          </div>
           <button class="icon-button scan-button" id="scan-button" type="button" aria-label="掃描目前頁面" title="掃描目前頁面">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.6L20 9M4 15l2.6 2.6A7 7 0 0 0 17.9 15"/></svg>
           </button>
@@ -131,7 +135,15 @@
           <label>開始時間<input id="edit-start" type="text" inputmode="numeric" required placeholder="08:42"></label>
           <label>自訂結束<input id="edit-end" type="text" inputmode="numeric" placeholder="留白為自動"></label>
         </div>
-        <label>類型<select id="edit-kind"><option value="song">歌曲</option><option value="chapter">段落</option><option value="note">註記</option><option value="hidden">隱藏</option></select></label>
+        <fieldset class="kind-field" id="edit-kind">
+          <legend>類型</legend>
+          <div class="kind-options">
+            <label class="kind-option"><input type="radio" name="edit-kind" value="song"><span>歌曲</span></label>
+            <label class="kind-option"><input type="radio" name="edit-kind" value="chapter"><span>段落</span></label>
+            <label class="kind-option"><input type="radio" name="edit-kind" value="note"><span>註記</span></label>
+            <label class="kind-option"><input type="radio" name="edit-kind" value="hidden"><span>隱藏</span></label>
+          </div>
+        </fieldset>
         <p class="form-hint">段落會結束前一首歌；註記只供跳轉，不影響循環界線。</p>
         <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit">取消</button><button class="primary-button" value="default" type="submit">儲存變更</button></div>
       </form>

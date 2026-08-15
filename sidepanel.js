@@ -42,7 +42,7 @@ const state = {
 
 const elements = Object.fromEntries([
   "app", "video-thumbnail", "video-title", "video-channel", "video-duration",
-  "source-select", "scan-button", "status-message", "show-hidden", "empty-state",
+  "source-picker", "source-trigger", "source-current", "source-options", "scan-button", "status-message", "show-hidden", "empty-state",
   "timeline", "player-panel", "now-title", "now-range", "loop-toggle", "progress",
   "progress-current", "progress-end", "play-button", "previous-button", "next-button",
   "paste-dialog", "paste-form", "paste-author", "paste-text", "edit-dialog", "edit-form",
@@ -138,18 +138,48 @@ function renderContext() {
 }
 
 function renderSources() {
-  elements.sourceSelect.replaceChildren();
+  setSourceMenuOpen(false);
+  elements.sourceOptions.replaceChildren();
   if (!state.record?.sources.length) {
-    elements.sourceSelect.add(new Option("尚無來源", ""));
-    elements.sourceSelect.disabled = true;
+    elements.sourceCurrent.textContent = "尚無來源";
+    elements.sourceTrigger.disabled = true;
+    elements.sourceTrigger.setAttribute("aria-label", "時間軸來源：尚無來源");
     return;
   }
   for (const source of state.record.sources) {
-    const option = new Option(sourceLabel(source), source.id);
-    option.selected = source.id === state.record.activeSourceId;
-    elements.sourceSelect.add(option);
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "source-option";
+    option.dataset.sourceId = source.id;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(source.id === state.record.activeSourceId));
+    option.textContent = sourceLabel(source);
+    elements.sourceOptions.append(option);
   }
-  elements.sourceSelect.disabled = false;
+  const current = activeSource() ?? state.record.sources[0];
+  const label = sourceLabel(current);
+  elements.sourceCurrent.textContent = label;
+  elements.sourceTrigger.disabled = false;
+  elements.sourceTrigger.setAttribute("aria-label", `時間軸來源：${label}`);
+}
+
+function setSourceMenuOpen(open, { focusActive = false } = {}) {
+  const canOpen = Boolean(open && !elements.sourceTrigger.disabled);
+  elements.sourceTrigger.setAttribute("aria-expanded", String(canOpen));
+  elements.sourceOptions.hidden = !canOpen;
+  if (canOpen && focusActive) {
+    (elements.sourceOptions.querySelector('[aria-selected="true"]')
+      ?? elements.sourceOptions.querySelector(".source-option"))?.focus();
+  }
+}
+
+async function chooseSource(sourceId) {
+  if (!state.record?.sources.some((source) => source.id === sourceId)) return;
+  state.record.activeSourceId = sourceId;
+  state.record.activeBlockId = selectBestBlock(state.record.blocks.filter((block) => block.sourceId === sourceId))?.id ?? null;
+  state.selectedEntryId = null;
+  setSourceMenuOpen(false);
+  await persist(state.record);
 }
 
 function createTimelineRow(entry, block) {
@@ -403,7 +433,9 @@ function openEdit(entryId) {
   elements.editStart.value = formatTimestamp(entry.startSeconds, { padHours: entry.startSeconds >= 3600 });
   elements.editEnd.value = Number.isFinite(entry.endSeconds)
     ? formatTimestamp(entry.endSeconds, { padHours: entry.endSeconds >= 3600 }) : "";
-  elements.editKind.value = entry.kind;
+  elements.editKind.querySelectorAll('input[name="edit-kind"]').forEach((input) => {
+    input.checked = input.value === entry.kind;
+  });
   elements.editDialog.showModal();
 }
 
@@ -411,13 +443,15 @@ async function saveEdit() {
   const startSeconds = parseTimestamp(elements.editStart.value.trim());
   const endValue = elements.editEnd.value.trim();
   const endSeconds = endValue ? parseTimestamp(endValue) : null;
+  const kind = elements.editKind.querySelector('input[name="edit-kind"]:checked')?.value;
   if (startSeconds === null) throw new Error("開始時間格式不正確");
   if (endValue && (endSeconds === null || endSeconds <= startSeconds)) throw new Error("結束時間必須晚於開始時間");
+  if (!kind) throw new Error("請選擇項目類型");
   const updated = updateEntry(state.record, elements.editId.value, {
     title: elements.editTitle.value.trim(),
     startSeconds,
     endSeconds,
-    kind: elements.editKind.value
+    kind
   });
   await persist(updated);
   if (state.selectedEntryId === elements.editId.value) await updateLoop();
@@ -451,11 +485,37 @@ function bindEvents() {
   elements.scanButton.addEventListener("click", scanPage);
   elements.videoThumbnail.addEventListener("error", () => { elements.videoThumbnail.src = FALLBACK_THUMBNAIL; });
 
-  elements.sourceSelect.addEventListener("change", async () => {
-    state.record.activeSourceId = elements.sourceSelect.value;
-    state.record.activeBlockId = selectBestBlock(state.record.blocks.filter((block) => block.sourceId === elements.sourceSelect.value))?.id ?? null;
-    state.selectedEntryId = null;
-    await persist(state.record);
+  elements.sourceTrigger.addEventListener("click", () => {
+    const willOpen = elements.sourceTrigger.getAttribute("aria-expanded") !== "true";
+    setSourceMenuOpen(willOpen, { focusActive: willOpen });
+  });
+  elements.sourceOptions.addEventListener("click", async (event) => {
+    const option = event.target.closest("[data-source-id]");
+    if (option) {
+      await chooseSource(option.dataset.sourceId);
+      elements.sourceTrigger.focus();
+    }
+  });
+  elements.sourceOptions.addEventListener("keydown", async (event) => {
+    const options = [...elements.sourceOptions.querySelectorAll(".source-option")];
+    const index = options.indexOf(document.activeElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSourceMenuOpen(false);
+      elements.sourceTrigger.focus();
+      return;
+    }
+    const nextIndex = event.key === "ArrowDown" ? Math.min(options.length - 1, index + 1)
+      : event.key === "ArrowUp" ? Math.max(0, index - 1)
+        : event.key === "Home" ? 0
+          : event.key === "End" ? options.length - 1 : null;
+    if (nextIndex !== null && options[nextIndex]) {
+      event.preventDefault();
+      options[nextIndex].focus();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!elements.sourcePicker.contains(event.target)) setSourceMenuOpen(false);
   });
   elements.showHidden.addEventListener("change", () => {
     state.showHidden = elements.showHidden.checked;
