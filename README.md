@@ -6,7 +6,9 @@ It does not require the YouTube API, a backend, or a login. Timeline sources can
 
 ## Screenshot
 
-![UtaCue Side Panel screenshot](screenshots/utacue-sidepanel.png)
+<p align="center">
+  <img src="screenshots/utacue-sidepanel.jpg" alt="UtaCue Side Panel screenshot" width="430">
+</p>
 
 ## Features
 
@@ -90,7 +92,7 @@ Tests use Node.js's built-in test runner and require no additional test framewor
 ├── fallback-thumbnail.png # Fallback image when the video thumbnail is unavailable
 ├── utacue-icon.png        # Extension icon
 ├── screenshots/
-│   └── utacue-sidepanel.png # UI screenshot embedded in the READMEs
+│   └── utacue-sidepanel.jpg # UI screenshot embedded in the READMEs
 ├── package.json           # Project metadata and test script
 ├── core.test.mjs          # Core data and timeline logic tests
 ├── content.test.mjs       # YouTube SPA navigation and page-context tests

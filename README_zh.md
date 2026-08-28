@@ -6,7 +6,9 @@ UtaCue 是一個 Chrome Manifest V3 Side Panel 擴充功能，將 YouTube 影片
 
 ## 畫面預覽
 
-![UtaCue Side Panel 畫面](screenshots/utacue-sidepanel.png)
+<p align="center">
+  <img src="screenshots/utacue-sidepanel.jpg" alt="UtaCue Side Panel 畫面" width="430">
+</p>
 
 ## 功能
 
@@ -90,7 +92,7 @@ npm test
 ├── fallback-thumbnail.png # 無法取得影片縮圖時使用的預設圖片
 ├── utacue-icon.png        # 擴充功能圖示
 ├── screenshots/
-│   └── utacue-sidepanel.png # README 使用的介面截圖
+│   └── utacue-sidepanel.jpg # README 使用的介面截圖
 ├── package.json           # 專案名稱與測試指令
 ├── core.test.mjs          # 核心資料與時間軸邏輯測試
 ├── content.test.mjs       # YouTube SPA 換片與頁面情境測試
