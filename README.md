@@ -120,7 +120,13 @@ flowchart LR
 
 UtaCue does not call the YouTube Data API and has no backend service. Scanned text, manual edits, setlists, and JSON backups are stored locally in the browser and are not sent to an external service by this project.
 
-The repository currently contains no `.env.example`, deployment configuration, or license file, so there are no additional environment variables, deployment commands, or license terms to document.
+## License
+
+Copyright (c) 2026 Llamadayo
+
+The source code in this repository is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
+
+Third-party services, trademarks, website content, thumbnails, and other materials not owned by this project remain subject to their respective terms and licenses.
 
 ## Troubleshooting
 
