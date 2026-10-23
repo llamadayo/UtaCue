@@ -149,6 +149,13 @@ form label:not(.switch-label):not(.file-button):not(.kind-option) { margin-botto
 form input[type="text"] { height: 42px; margin-top: 7px; padding: 0 12px; }
 textarea { min-height: 190px; margin-top: 7px; padding: 12px; resize: vertical; line-height: 1.55; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-grid > * { min-width: 0; }
+.end-time-field { margin-bottom: 14px; }
+#edit-form .end-time-field label { margin-bottom: 7px; }
+.capture-time-button { width: 100%; padding: 7px 8px; }
+.capture-time-button:disabled { opacity: .55; cursor: wait; }
+#edit-status { margin-bottom: 14px; }
+#edit-status.error { color: var(--danger); }
 .kind-field { min-width: 0; margin: 0 0 14px; padding: 0; border: 0; }
 .kind-field legend { margin-bottom: 7px; padding: 0; color: var(--muted); font-size: 12px; font-weight: 650; }
 .kind-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

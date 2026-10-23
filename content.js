@@ -145,6 +145,20 @@
     }
   }
 
+  function getPlaybackState() {
+    const video = getVideo();
+    if (!video) throw new Error("目前頁面找不到播放器");
+    if (!Number.isFinite(video.currentTime) || video.currentTime < 0) {
+      throw new Error("目前無法取得播放時間，請稍後再試");
+    }
+    return {
+      currentTime: video.currentTime,
+      duration: Number.isFinite(video.duration) ? video.duration : null,
+      paused: video.paused,
+      videoId: getVideoId()
+    };
+  }
+
   function tickPlayback() {
     const video = getVideo();
     if (!video) return;
@@ -175,6 +189,7 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     try {
       if (message?.type === "GET_CONTEXT") sendResponse({ ok: true, context: getContext() });
+      else if (message?.type === "GET_PLAYBACK_STATE") sendResponse({ ok: true, state: getPlaybackState() });
       else if (message?.type === "SCAN_PAGE") sendResponse({ ok: true, ...collectSources() });
       else if (message?.type === "PLAYER_COMMAND") {
         applyPlayerCommand(message);

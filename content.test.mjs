@@ -3,6 +3,51 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
+async function playbackHarness(video) {
+  let listener;
+  const source = await readFile(new URL("./content.js", import.meta.url), "utf8");
+  vm.runInNewContext(source, {
+    URL,
+    location: { href: "https://www.youtube.com/watch?v=video-a" },
+    document: {
+      title: "Video A - YouTube",
+      querySelector: (selector) => selector.includes("video") ? video : null,
+      addEventListener() {}
+    },
+    chrome: { runtime: { sendMessage() {}, onMessage: { addListener(callback) { listener = callback; } } } },
+    window: { addEventListener() {} },
+    setInterval() {}
+  });
+  return () => {
+    let response;
+    listener({ type: "GET_PLAYBACK_STATE" }, {}, (value) => { response = value; });
+    return response;
+  };
+}
+
+test("reads fresh player time on demand without seeking or changing playback", async () => {
+  const video = { duration: 7200, currentTime: 637.9, paused: true };
+  const readPlayback = await playbackHarness(video);
+  let response = readPlayback();
+  assert.equal(response.ok, true);
+  assert.equal(response.state.currentTime, 637.9);
+  assert.equal(response.state.videoId, "video-a");
+  assert.equal(response.state.paused, true);
+  video.currentTime = 3723.4;
+  response = readPlayback();
+  assert.equal(response.state.currentTime, 3723.4);
+  assert.equal(video.currentTime, 3723.4);
+  assert.equal(video.paused, true);
+});
+
+test("reports unavailable players and invalid playback times", async () => {
+  for (const video of [null, { currentTime: NaN }, { currentTime: Infinity }, { currentTime: -1 }]) {
+    const response = (await playbackHarness(video))();
+    assert.equal(response.ok, false);
+    assert.match(response.error, /播放器|播放時間/);
+  }
+});
+
 test("broadcasts refreshed metadata after a YouTube SPA video switch", async () => {
   const source = await readFile(new URL("./content.js", import.meta.url), "utf8");
   const location = { href: "https://www.youtube.com/watch?v=video-a" };

@@ -37,7 +37,8 @@ const state = {
   showHidden: false,
   playback: { currentTime: 0, paused: true },
   pendingRecord: null,
-  demoTimer: null
+  demoTimer: null,
+  editSession: 0
 };
 
 const elements = Object.fromEntries([
@@ -46,7 +47,7 @@ const elements = Object.fromEntries([
   "timeline", "player-panel", "now-title", "now-range", "loop-toggle", "progress",
   "progress-current", "progress-end", "play-button", "previous-button", "next-button",
   "paste-dialog", "paste-form", "paste-author", "paste-text", "edit-dialog", "edit-form",
-  "edit-id", "edit-title", "edit-start", "edit-end", "edit-kind", "diff-dialog", "diff-form",
+  "edit-id", "edit-title", "edit-start", "edit-end", "edit-end-current", "edit-status", "edit-kind", "diff-dialog", "diff-form",
   "diff-added", "diff-changed", "diff-removed", "settings-dialog", "settings-status",
   "import-file"
 ].map((id) => [id.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), document.getElementById(id)]));
@@ -90,17 +91,21 @@ async function activeTabMessage(message) {
   if (!isExtension) return demoMessage(message);
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("找不到目前分頁");
+  let response;
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, message);
-    if (!response?.ok) throw new Error(response?.error || "YouTube 頁面沒有回應");
-    return response;
-  } catch (error) {
+    response = await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
     throw new Error("請在 YouTube 影片頁重新整理一次，再開啟側邊面板");
   }
+  if (!response?.ok) throw new Error(response?.error || "YouTube 頁面沒有回應");
+  return response;
 }
 
 function demoMessage(message) {
   if (message.type === "GET_CONTEXT") return { ok: true, context: state.context };
+  if (message.type === "GET_PLAYBACK_STATE") {
+    return { ok: true, state: { ...state.playback, videoId: state.context?.videoId } };
+  }
   if (message.type === "PLAYER_COMMAND") {
     if (message.command === "seek") state.playback.currentTime = Number(message.seconds) || 0;
     if (message.command === "toggle") state.playback.paused = !state.playback.paused;
@@ -428,6 +433,9 @@ async function moveSong(direction) {
 function openEdit(entryId) {
   const entry = getEntry(state.record, entryId)?.entry;
   if (!entry) return;
+  state.editSession += 1;
+  elements.editEndCurrent.disabled = false;
+  setEditStatus("");
   elements.editId.value = entry.id;
   elements.editTitle.value = entry.title;
   elements.editStart.value = formatTimestamp(entry.startSeconds, { padHours: entry.startSeconds >= 3600 });
@@ -437,6 +445,42 @@ function openEdit(entryId) {
     input.checked = input.value === entry.kind;
   });
   elements.editDialog.showModal();
+}
+
+function setEditStatus(message, type = "neutral") {
+  elements.editStatus.textContent = message;
+  elements.editStatus.hidden = !message;
+  elements.editStatus.classList.toggle("error", type === "error");
+}
+
+async function captureEndTime() {
+  const session = state.editSession;
+  const videoId = state.record?.videoId;
+  const isCurrentEdit = () => elements.editDialog.open
+    && state.editSession === session && state.record?.videoId === videoId;
+  elements.editEndCurrent.disabled = true;
+  setEditStatus("正在取得播放時間…");
+  try {
+    const response = await activeTabMessage({ type: "GET_PLAYBACK_STATE" });
+    if (!isCurrentEdit()) return;
+    if (!videoId || response.state?.videoId !== videoId) {
+      throw new Error("目前分頁的影片與編輯中的時間軸不同，請切回原影片");
+    }
+    const currentTime = response.state.currentTime;
+    if (!Number.isFinite(currentTime) || currentTime < 0) {
+      throw new Error("目前無法取得播放時間，請稍後再試");
+    }
+    const startSeconds = parseTimestamp(elements.editStart.value.trim());
+    if (startSeconds === null) throw new Error("開始時間格式不正確");
+    const endSeconds = Math.floor(currentTime);
+    if (endSeconds <= startSeconds) throw new Error("目前播放時間必須晚於開始時間");
+    elements.editEnd.value = formatTimestamp(endSeconds, { padHours: endSeconds >= 3600 });
+    setEditStatus(`已填入 ${elements.editEnd.value}，儲存變更後套用。`);
+  } catch (error) {
+    if (isCurrentEdit()) setEditStatus(error.message, "error");
+  } finally {
+    if (isCurrentEdit()) elements.editEndCurrent.disabled = false;
+  }
 }
 
 async function saveEdit() {
@@ -569,11 +613,12 @@ function bindEvents() {
       setStatus(error.message, "error");
     }
   });
+  elements.editEndCurrent.addEventListener("click", captureEndTime);
   elements.editForm.addEventListener("submit", async (event) => {
     if (event.submitter?.value === "cancel") return;
     event.preventDefault();
     try { await saveEdit(); elements.editDialog.close(); }
-    catch (error) { setStatus(error.message, "error"); }
+    catch (error) { setEditStatus(error.message, "error"); }
   });
   elements.diffForm.addEventListener("submit", async (event) => {
     if (event.submitter?.value !== "cancel" && state.pendingRecord) {

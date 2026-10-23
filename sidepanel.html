@@ -134,8 +134,12 @@
         <label>標題<input id="edit-title" type="text" required></label>
         <div class="field-grid">
           <label>開始時間<input id="edit-start" type="text" inputmode="numeric" required placeholder="08:42"></label>
-          <label>自訂結束<input id="edit-end" type="text" inputmode="numeric" placeholder="留白為自動"></label>
+          <div class="end-time-field">
+            <label>自訂結束<input id="edit-end" type="text" inputmode="numeric" placeholder="留白為自動"></label>
+            <button class="secondary-button capture-time-button" id="edit-end-current" type="button">使用目前播放時間</button>
+          </div>
         </div>
+        <p class="form-hint" id="edit-status" role="status" hidden></p>
         <fieldset class="kind-field" id="edit-kind">
           <legend>類型</legend>
           <div class="kind-options">
