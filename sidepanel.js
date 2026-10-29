@@ -9,8 +9,7 @@ import {
   parseTimestamp,
   scoreBlock,
   selectBestBlock,
-  updateEntry,
-  validateBackup
+  updateEntry
 } from "./core.mjs";
 import {
   clearAllRecords,
@@ -20,8 +19,10 @@ import {
   loadRecord,
   saveRecord
 } from "./storage.mjs";
+import { extensionApi, isExtensionContext } from "./extension-api.mjs";
+import { exportJsonBackup, readJsonBackup } from "./backup.mjs";
 
-const isExtension = Boolean(globalThis.chrome?.storage?.local && globalThis.chrome?.tabs);
+const isExtension = isExtensionContext;
 const FALLBACK_THUMBNAIL = "fallback-thumbnail.png";
 const DEMO_TIMELINE = `00:03:18 星のかけら
 00:08:42 夜に駆ける
@@ -30,6 +31,9 @@ const DEMO_TIMELINE = `00:03:18 星のかけら
 00:25:30 MC / 雑談`;
 
 const state = {
+  tabId: null,
+  connectionEpoch: 0,
+  contextEpoch: 0,
   context: null,
   record: null,
   selectedEntryId: null,
@@ -38,15 +42,17 @@ const state = {
   playback: { currentTime: 0, paused: true },
   pendingRecord: null,
   demoTimer: null,
-  editSession: 0
+  editSession: 0,
+  playerBusy: false,
+  notice: null
 };
 
 const elements = Object.fromEntries([
   "app", "video-thumbnail", "video-title", "video-channel", "video-duration",
   "source-picker", "source-trigger", "source-current", "source-options", "scan-button", "status-message", "show-hidden", "empty-state",
-  "timeline", "player-panel", "now-title", "now-range", "loop-toggle", "progress",
+  "timeline", "player-panel", "playback-label", "now-title", "now-range", "loop-toggle", "progress",
   "progress-current", "progress-end", "play-button", "previous-button", "next-button",
-  "paste-dialog", "paste-form", "paste-author", "paste-text", "edit-dialog", "edit-form",
+  "paste-dialog", "paste-form", "paste-author", "paste-text", "paste-status", "edit-dialog", "edit-form",
   "edit-id", "edit-title", "edit-start", "edit-end", "edit-end-current", "edit-status", "edit-kind", "diff-dialog", "diff-form",
   "diff-added", "diff-changed", "diff-removed", "settings-dialog", "settings-status",
   "import-file"
@@ -80,7 +86,8 @@ function relativeUpdatedAt(value) {
   return date.toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function setStatus(message, type = "neutral") {
+function setStatus(message, type = "neutral", { remember = true } = {}) {
+  if (remember) state.notice = { message, type };
   elements.statusMessage.textContent = message;
   const row = elements.statusMessage.closest(".status-row");
   row.classList.toggle("success", type === "success");
@@ -89,35 +96,99 @@ function setStatus(message, type = "neutral") {
 
 async function activeTabMessage(message) {
   if (!isExtension) return demoMessage(message);
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) throw new Error("找不到目前分頁");
+  if (state.tabId === null) {
+    const [tab] = await extensionApi.tabs.query({ active: true, currentWindow: true });
+    if (!Number.isInteger(tab?.id)) throw new Error("找不到目前分頁");
+    state.tabId = tab.id;
+  }
+  const tabId = state.tabId;
+  const expectedVideoId = message.type === "GET_CONTEXT" ? null : state.context?.videoId;
+  const request = expectedVideoId ? { ...message, videoId: expectedVideoId } : message;
   let response;
   try {
-    response = await chrome.tabs.sendMessage(tab.id, message);
+    response = await extensionApi.tabs.sendMessage(tabId, request, { frameId: 0 });
   } catch {
-    throw new Error("請在 YouTube 影片頁重新整理一次，再開啟側邊面板");
+    throw new Error("請在 Safari 或 Chrome 開啟 YouTube 影片，允許 UtaCue 存取此網站，再重新整理影片頁。");
+  }
+  if (tabId !== state.tabId || (expectedVideoId && expectedVideoId !== state.context?.videoId)) {
+    throw new Error("目前影片已切換，請在新的歌單重新操作。");
   }
   if (!response?.ok) throw new Error(response?.error || "YouTube 頁面沒有回應");
+  const responseVideoId = response.state?.videoId ?? response.context?.videoId;
+  if (expectedVideoId && responseVideoId && responseVideoId !== expectedVideoId) {
+    throw new Error("目前影片已切換，請重新開啟 UtaCue 後再試。");
+  }
   return response;
 }
 
 function demoMessage(message) {
   if (message.type === "GET_CONTEXT") return { ok: true, context: state.context };
   if (message.type === "GET_PLAYBACK_STATE") {
-    return { ok: true, state: { ...state.playback, videoId: state.context?.videoId } };
+    return { ok: true, state: { ...state.playback, videoId: state.context?.videoId,
+      selectedEntryId: state.selectedEntryId, loop: state.playback.loop ?? null } };
   }
   if (message.type === "PLAYER_COMMAND") {
     if (message.command === "seek") state.playback.currentTime = Number(message.seconds) || 0;
+    if (message.entryId) state.selectedEntryId = message.entryId;
+    if (message.command === "seek" && Object.hasOwn(message, "loop")) state.playback.loop = message.loop;
+    if (message.command === "seek" && message.play !== false) state.playback.paused = false;
     if (message.command === "toggle") state.playback.paused = !state.playback.paused;
     if (message.command === "play") state.playback.paused = false;
     if (message.command === "pause") state.playback.paused = true;
     renderPlayer();
-    return { ok: true };
+    return { ok: true, state: { ...state.playback, videoId: state.context?.videoId, selectedEntryId: state.selectedEntryId } };
+  }
+  if (message.type === "SET_LOOP") {
+    state.playback.loop = { ...message, videoId: state.context?.videoId };
+  }
+  if (message.type === "CLEAR_LOOP") {
+    state.playback.loop = null;
+    if (message.clearSelection) state.selectedEntryId = null;
   }
   if (message.type === "SCAN_PAGE") {
     return { ok: true, context: state.context, sources: [{ type: "comment", author: "@music_fan", rawText: DEMO_TIMELINE }] };
   }
   return { ok: true };
+}
+
+function sessionIdentity() {
+  return { tabId: state.tabId, videoId: state.context?.videoId, epoch: state.contextEpoch };
+}
+
+function isCurrentSession(session) {
+  return session.tabId === state.tabId && session.videoId === state.context?.videoId
+    && session.epoch === state.contextEpoch;
+}
+
+async function reportTask(task) {
+  try { await task(); }
+  catch (error) { setStatus(error.message, "error"); }
+}
+
+async function clearSelectedPlayback() {
+  if (state.playerBusy) throw new Error("播放操作進行中，請稍後再試。");
+  if (state.context?.videoId) await activeTabMessage({ type: "CLEAR_LOOP", clearSelection: true });
+  state.selectedEntryId = null;
+  state.playback.loop = null;
+}
+
+function applyPlaybackState(playback, { restoreSelection = false } = {}) {
+  if (!playback || playback.videoId !== state.context?.videoId) return;
+  state.playback = playback;
+  if (!state.playerBusy && (restoreSelection || Object.hasOwn(playback, "selectedEntryId"))) {
+    const found = getEntry(state.record, playback.selectedEntryId);
+    const previousSelection = state.selectedEntryId;
+    state.selectedEntryId = found?.entry.id ?? null;
+    if (found?.entry.kind === "song") state.loopEnabled = Boolean(playback.loop?.enabled);
+    if (previousSelection !== state.selectedEntryId) renderTimeline();
+  }
+  renderPlayer();
+}
+
+async function restorePlayback() {
+  const session = sessionIdentity();
+  const response = await activeTabMessage({ type: "GET_PLAYBACK_STATE" });
+  if (isCurrentSession(session)) applyPlaybackState(response.state, { restoreSelection: true });
 }
 
 function activeSource() {
@@ -180,6 +251,8 @@ function setSourceMenuOpen(open, { focusActive = false } = {}) {
 
 async function chooseSource(sourceId) {
   if (!state.record?.sources.some((source) => source.id === sourceId)) return;
+  if (sourceId === state.record.activeSourceId) return;
+  await clearSelectedPlayback();
   state.record.activeSourceId = sourceId;
   state.record.activeBlockId = selectBestBlock(state.record.blocks.filter((block) => block.sourceId === sourceId))?.id ?? null;
   state.selectedEntryId = null;
@@ -197,6 +270,7 @@ function createTimelineRow(entry, block) {
   const main = document.createElement("button");
   main.type = "button";
   main.className = "row-main";
+  main.disabled = state.playerBusy;
   main.dataset.action = "select-entry";
   main.setAttribute("aria-label", `${formatTimestamp(entry.startSeconds)} ${entry.title}`);
 
@@ -284,10 +358,16 @@ function renderPlayer() {
   if (!isSong) return;
   const end = calculateEntryEnd(state.record, entry.id);
   elements.nowTitle.textContent = entry.title;
+  elements.playbackLabel.textContent = state.playback.paused ? "目前選曲 · 已暫停" : "播放中";
   elements.nowRange.textContent = `${formatTimestamp(entry.startSeconds)} — ${formatTimestamp(end)}`;
   elements.loopToggle.checked = state.loopEnabled;
-  elements.loopToggle.disabled = !end || !state.context?.canLoop;
+  elements.loopToggle.disabled = state.playerBusy || !end || !state.context?.canLoop;
   elements.playButton.classList.toggle("paused", state.playback.paused);
+  elements.playButton.setAttribute("aria-label", state.playback.paused ? "播放" : "暫停");
+  elements.playButton.disabled = state.playerBusy;
+  elements.previousButton.disabled = state.playerBusy;
+  elements.nextButton.disabled = state.playerBusy;
+  elements.progress.disabled = state.playerBusy || !end;
   const current = Math.max(entry.startSeconds, state.playback.currentTime || entry.startSeconds);
   const range = end ? end - entry.startSeconds : 0;
   const position = range > 0 ? Math.min(1, Math.max(0, (current - entry.startSeconds) / range)) : 0;
@@ -297,16 +377,20 @@ function renderPlayer() {
 }
 
 function renderStatus() {
+  if (state.notice) {
+    setStatus(state.notice.message, state.notice.type, { remember: false });
+    return;
+  }
   if (!state.context?.videoId) {
-    setStatus("請先開啟一部 YouTube 影片", "error");
+    setStatus("請先開啟一部 YouTube 影片", "error", { remember: false });
     return;
   }
   if (!state.record) {
-    setStatus("尚未建立歌單");
+    setStatus("尚未建立歌單", "neutral", { remember: false });
     return;
   }
   const count = visibleSongCount();
-  setStatus(`已找到 ${count} 首・更新於 ${relativeUpdatedAt(state.record.updatedAt)}`, "success");
+  setStatus(`已找到 ${count} 首・更新於 ${relativeUpdatedAt(state.record.updatedAt)}`, "success", { remember: false });
 }
 
 function render() {
@@ -319,8 +403,11 @@ function render() {
 
 async function persist(record = state.record) {
   if (!record) return;
-  state.record = record;
+  const session = sessionIdentity();
   if (isExtension) await saveRecord(record);
+  if (!isCurrentSession(session)) return;
+  state.record = record;
+  state.notice = null;
   render();
 }
 
@@ -332,10 +419,28 @@ async function switchContext(context) {
     render();
     return;
   }
+  const epoch = ++state.contextEpoch;
+  state.editSession += 1;
+  state.pendingRecord = null;
+  state.playerBusy = false;
+  state.notice = null;
+  for (const dialog of [elements.editDialog, elements.pasteDialog, elements.diffDialog]) {
+    if (dialog.open) dialog.close();
+  }
   state.selectedEntryId = null;
+  state.loopEnabled = true;
   state.playback = { currentTime: 0, paused: true };
-  state.record = context?.videoId && isExtension ? await loadRecord(context.videoId) : null;
+  state.record = null;
   render();
+  const record = context?.videoId && isExtension ? await loadRecord(context.videoId) : null;
+  if (epoch !== state.contextEpoch) return;
+  state.record = record;
+  if (record && Number.isFinite(context?.durationSeconds)) record.durationSeconds = context.durationSeconds;
+  render();
+  if (context?.videoId && context?.hasVideo !== false) {
+    // The page owns the session; opening a popup must never reset its loop.
+    try { await restorePlayback(); } catch { /* A loading player can report its state later. */ }
+  }
 }
 
 async function scanPage() {
@@ -343,11 +448,15 @@ async function scanPage() {
     setStatus("請先開啟一部 YouTube 影片", "error");
     return;
   }
+  if (elements.scanButton.disabled) return;
+  const session = sessionIdentity();
   setStatus("正在掃描已載入的說明欄與留言…");
   elements.scanButton.disabled = true;
   try {
     const response = await activeTabMessage({ type: "SCAN_PAGE" });
-    state.context = response.context || state.context;
+    if (!isCurrentSession(session)) return;
+    if (response.context?.videoId !== session.videoId) throw new Error("目前影片已切換，請重新開啟 UtaCue 後再掃描。");
+    state.context = response.context;
     const preservedPasteSources = state.record?.sources.filter((source) => source.type === "paste") ?? [];
     const incoming = buildRecord({
       ...state.context,
@@ -367,9 +476,11 @@ async function scanPage() {
     elements.diffAdded.textContent = diff.added;
     elements.diffChanged.textContent = diff.changed;
     elements.diffRemoved.textContent = diff.removed;
+    state.notice = null;
+    renderStatus();
     elements.diffDialog.showModal();
   } catch (error) {
-    setStatus(error.message, "error");
+    if (isCurrentSession(session)) setStatus(error.message, "error");
   } finally {
     elements.scanButton.disabled = false;
   }
@@ -387,34 +498,47 @@ async function addPastedTimeline(rawText, author) {
   const merged = mergeRecords(state.record, incoming);
   merged.activeSourceId = source.id;
   merged.activeBlockId = selectBestBlock(sourceBlocks)?.id ?? null;
-  state.selectedEntryId = null;
+  await clearSelectedPlayback();
   await persist(merged);
 }
 
 async function selectEntry(entryId) {
+  if (state.playerBusy) return;
   const found = getEntry(state.record, entryId);
   if (!found) return;
-  state.selectedEntryId = entryId;
-  state.playback.currentTime = found.entry.startSeconds;
-  state.playback.paused = false;
+  const session = sessionIdentity();
+  const wantsLoop = state.loopEnabled;
   const end = calculateEntryEnd(state.record, entryId);
-  try {
-    await activeTabMessage({ type: "PLAYER_COMMAND", command: "seek", seconds: found.entry.startSeconds, play: true });
-    if (found.entry.kind === "song" && state.loopEnabled && end && state.context?.canLoop) {
-      await activeTabMessage({ type: "SET_LOOP", enabled: true, startSeconds: found.entry.startSeconds, endSeconds: end, entryId });
-    } else {
-      await activeTabMessage({ type: "CLEAR_LOOP" });
-    }
-  } catch (error) {
-    setStatus(error.message, "error");
-  }
+  state.playerBusy = true;
+  state.notice = null;
   render();
+  try {
+    const loop = found.entry.kind === "song" && wantsLoop && end && state.context?.canLoop
+      ? { enabled: true, startSeconds: found.entry.startSeconds, endSeconds: end, entryId, videoId: session.videoId }
+      : null;
+    // Set the selection and loop in one page-owned command. A popup may close
+    // while play() is buffering, so no essential step may depend on its reply.
+    const response = await activeTabMessage({ type: "PLAYER_COMMAND", command: "seek",
+      seconds: found.entry.startSeconds, play: true, entryId, loop });
+    if (!isCurrentSession(session)) return;
+    state.selectedEntryId = entryId;
+    if (response.state) state.playback = response.state;
+    if (response.playbackBlocked) setStatus(response.message || "已跳到歌曲，請在影片上點一下播放。", "error");
+  } catch (error) {
+    if (isCurrentSession(session)) setStatus(error.message, "error");
+  } finally {
+    if (isCurrentSession(session)) {
+      state.playerBusy = false;
+      try { await restorePlayback(); } catch { /* Keep the original action error visible. */ }
+      render();
+    }
+  }
 }
 
 async function updateLoop() {
   const entry = selectedEntry();
   const end = entry ? calculateEntryEnd(state.record, entry.id) : null;
-  if (entry && state.loopEnabled && end && state.context?.canLoop) {
+  if (entry?.kind === "song" && state.loopEnabled && end && state.context?.canLoop) {
     await activeTabMessage({ type: "SET_LOOP", enabled: true, startSeconds: entry.startSeconds, endSeconds: end, entryId: entry.id });
   } else {
     await activeTabMessage({ type: "CLEAR_LOOP" });
@@ -484,12 +608,19 @@ async function captureEndTime() {
 }
 
 async function saveEdit() {
+  if (state.playerBusy) throw new Error("播放操作進行中，請稍後再試。");
+  const session = sessionIdentity();
   const startSeconds = parseTimestamp(elements.editStart.value.trim());
   const endValue = elements.editEnd.value.trim();
   const endSeconds = endValue ? parseTimestamp(endValue) : null;
   const kind = elements.editKind.querySelector('input[name="edit-kind"]:checked')?.value;
+  if (!elements.editTitle.value.trim()) throw new Error("請輸入標題");
   if (startSeconds === null) throw new Error("開始時間格式不正確");
   if (endValue && (endSeconds === null || endSeconds <= startSeconds)) throw new Error("結束時間必須晚於開始時間");
+  const duration = state.context?.durationSeconds ?? state.record?.durationSeconds;
+  if (Number.isFinite(duration) && (startSeconds >= duration || (endSeconds !== null && endSeconds > duration))) {
+    throw new Error("開始與結束時間必須在這部影片的長度內。");
+  }
   if (!kind) throw new Error("請選擇項目類型");
   const updated = updateEntry(state.record, elements.editId.value, {
     title: elements.editTitle.value.trim(),
@@ -498,16 +629,7 @@ async function saveEdit() {
     kind
   });
   await persist(updated);
-  if (state.selectedEntryId === elements.editId.value) await updateLoop();
-}
-
-function downloadJson(payload, filename) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  if (isCurrentSession(session) && state.selectedEntryId) await updateLoop();
 }
 
 async function backupPayload(currentOnly) {
@@ -516,7 +638,65 @@ async function backupPayload(currentOnly) {
 }
 
 function openDialog(dialog) {
+  if (dialog === elements.pasteDialog) {
+    elements.pasteStatus.textContent = "";
+    elements.pasteStatus.hidden = true;
+  }
+  if (dialog === elements.settingsDialog) {
+    document.getElementById("export-current").disabled = !state.context?.videoId;
+    document.getElementById("clear-current").disabled = !state.context?.videoId;
+  }
   if (!dialog.open) dialog.showModal();
+}
+
+async function exportBackupFile(currentOnly) {
+  const button = document.getElementById(currentOnly ? "export-current" : "export-all");
+  button.disabled = true;
+  try {
+    const videoId = state.context?.videoId;
+    if (currentOnly && !videoId) throw new Error("請先開啟一部 YouTube 影片");
+    const payload = await backupPayload(currentOnly);
+    const result = await exportJsonBackup(payload, currentOnly ? `UtaCue-${videoId}.json` : "UtaCue-backup.json");
+    elements.settingsStatus.textContent = result.method === "cancelled" ? "已取消匯出。"
+      : result.method === "share" ? `已分享 ${payload.records.length} 份歌單。`
+        : `已匯出 ${payload.records.length} 份歌單，請查看下載項目。`;
+  } catch (error) {
+    elements.settingsStatus.textContent = `匯出失敗：${error.message}`;
+  } finally {
+    button.disabled = currentOnly && !state.context?.videoId;
+  }
+}
+
+async function applyImportedBackup(payload) {
+  const session = sessionIdentity();
+  const importedCurrent = payload.records.find((record) => record.videoId === session.videoId);
+  if (importedCurrent) await clearSelectedPlayback();
+  if (isExtension) await importBackup(payload);
+  if (!isCurrentSession(session)) return;
+  if (importedCurrent) {
+    state.record = importedCurrent;
+    if (Number.isFinite(state.context?.durationSeconds)) state.record.durationSeconds = state.context.durationSeconds;
+  }
+  state.notice = null;
+  render();
+}
+
+async function applyPendingScan() {
+  if (!state.pendingRecord) return;
+  const incoming = state.pendingRecord;
+  // Rescanning may change entry IDs or the next boundary. Stop the previous
+  // page-owned loop before replacing the data it was calculated from.
+  await clearSelectedPlayback();
+  await persist(incoming);
+  state.pendingRecord = null;
+  elements.diffDialog.close();
+}
+
+async function playerCommand(message) {
+  state.notice = null;
+  const response = await activeTabMessage({ type: "PLAYER_COMMAND", ...message });
+  if (response.state) applyPlaybackState(response.state);
+  if (response.playbackBlocked) setStatus(response.message || "請在影片上點一下播放。", "error");
 }
 
 function bindEvents() {
@@ -527,7 +707,9 @@ function bindEvents() {
   document.getElementById("empty-scan").addEventListener("click", scanPage);
   document.getElementById("footer-scan").addEventListener("click", scanPage);
   elements.scanButton.addEventListener("click", scanPage);
-  elements.videoThumbnail.addEventListener("error", () => { elements.videoThumbnail.src = FALLBACK_THUMBNAIL; });
+  elements.videoThumbnail.addEventListener("error", () => {
+    if (!elements.videoThumbnail.src.endsWith(FALLBACK_THUMBNAIL)) elements.videoThumbnail.src = FALLBACK_THUMBNAIL;
+  });
 
   elements.sourceTrigger.addEventListener("click", () => {
     const willOpen = elements.sourceTrigger.getAttribute("aria-expanded") !== "true";
@@ -536,7 +718,7 @@ function bindEvents() {
   elements.sourceOptions.addEventListener("click", async (event) => {
     const option = event.target.closest("[data-source-id]");
     if (option) {
-      await chooseSource(option.dataset.sourceId);
+      await reportTask(() => chooseSource(option.dataset.sourceId));
       elements.sourceTrigger.focus();
     }
   });
@@ -574,23 +756,33 @@ function bindEvents() {
     if (action.dataset.action === "promote-block") {
       event.preventDefault();
       event.stopPropagation();
-      state.record.activeBlockId = action.dataset.blockId;
-      state.selectedEntryId = null;
-      await persist(state.record);
+      await reportTask(async () => {
+        await clearSelectedPlayback();
+        state.record.activeBlockId = action.dataset.blockId;
+        await persist(state.record);
+      });
     }
   });
 
   elements.loopToggle.addEventListener("change", async () => {
+    const session = sessionIdentity();
     state.loopEnabled = elements.loopToggle.checked;
-    try { await updateLoop(); } catch (error) { setStatus(error.message, "error"); }
+    state.playerBusy = true;
+    state.notice = null;
     renderPlayer();
+    try { await updateLoop(); }
+    catch (error) { if (isCurrentSession(session)) setStatus(error.message, "error"); }
+    finally {
+      if (isCurrentSession(session)) {
+        state.playerBusy = false;
+        try { await restorePlayback(); } catch { /* Retain the original error. */ }
+        renderPlayer();
+      }
+    }
   });
-  elements.playButton.addEventListener("click", async () => {
-    try { await activeTabMessage({ type: "PLAYER_COMMAND", command: "toggle" }); }
-    catch (error) { setStatus(error.message, "error"); }
-  });
-  elements.previousButton.addEventListener("click", () => moveSong(-1));
-  elements.nextButton.addEventListener("click", () => moveSong(1));
+  elements.playButton.addEventListener("click", () => reportTask(() => playerCommand({ command: "toggle" })));
+  elements.previousButton.addEventListener("click", () => reportTask(() => moveSong(-1)));
+  elements.nextButton.addEventListener("click", () => reportTask(() => moveSong(1)));
   elements.progress.addEventListener("input", async () => {
     const entry = selectedEntry();
     const end = entry ? calculateEntryEnd(state.record, entry.id) : null;
@@ -598,7 +790,7 @@ function bindEvents() {
     const seconds = entry.startSeconds + (end - entry.startSeconds) * (Number(elements.progress.value) / 1000);
     state.playback.currentTime = seconds;
     renderPlayer();
-    try { await activeTabMessage({ type: "PLAYER_COMMAND", command: "seek", seconds, play: false }); }
+    try { await playerCommand({ command: "seek", seconds, play: false }); }
     catch (error) { setStatus(error.message, "error"); }
   });
 
@@ -610,7 +802,8 @@ function bindEvents() {
       elements.pasteDialog.close();
       elements.pasteForm.reset();
     } catch (error) {
-      setStatus(error.message, "error");
+      elements.pasteStatus.textContent = error.message;
+      elements.pasteStatus.hidden = false;
     }
   });
   elements.editEndCurrent.addEventListener("click", captureEndTime);
@@ -623,36 +816,21 @@ function bindEvents() {
   elements.diffForm.addEventListener("submit", async (event) => {
     if (event.submitter?.value !== "cancel" && state.pendingRecord) {
       event.preventDefault();
-      await persist(state.pendingRecord);
-      state.pendingRecord = null;
-      elements.diffDialog.close();
+      await reportTask(applyPendingScan);
     } else state.pendingRecord = null;
   });
 
-  document.getElementById("export-current").addEventListener("click", async () => {
-    const payload = await backupPayload(true);
-    downloadJson(payload, `UtaCue-${state.context?.videoId || "current"}.json`);
-    elements.settingsStatus.textContent = `已匯出 ${payload.records.length} 份歌單。`;
-  });
-  document.getElementById("export-all").addEventListener("click", async () => {
-    const payload = await backupPayload(false);
-    downloadJson(payload, "UtaCue-backup.json");
-    elements.settingsStatus.textContent = `已匯出 ${payload.records.length} 份歌單。`;
-  });
+  document.getElementById("export-current").addEventListener("click", () => exportBackupFile(true));
+  document.getElementById("export-all").addEventListener("click", () => exportBackupFile(false));
   elements.importFile.addEventListener("change", async () => {
     const file = elements.importFile.files?.[0];
     if (!file) return;
     try {
-      const payload = JSON.parse(await file.text());
-      const validation = validateBackup(payload);
-      if (!validation.valid) throw new Error(validation.errors.join("、"));
+      const payload = await readJsonBackup(file);
       const confirmed = confirm(`即將匯入 ${payload.records.length} 份歌單；相同影片會以匯入資料取代。是否繼續？`);
       if (!confirmed) return;
-      if (isExtension) await importBackup(payload);
-      const importedCurrent = payload.records.find((record) => record.videoId === state.context?.videoId);
-      if (importedCurrent) state.record = importedCurrent;
+      await applyImportedBackup(payload);
       elements.settingsStatus.textContent = `已匯入 ${payload.records.length} 份歌單。`;
-      render();
     } catch (error) {
       elements.settingsStatus.textContent = `匯入失敗：${error.message}`;
     } finally {
@@ -661,19 +839,29 @@ function bindEvents() {
   });
   document.getElementById("clear-current").addEventListener("click", async () => {
     if (!state.context?.videoId || !confirm("確定清除目前影片的歌單？此操作無法復原。")) return;
-    if (isExtension) await deleteRecord(state.context.videoId);
-    state.record = null;
-    state.selectedEntryId = null;
-    elements.settingsDialog.close();
-    render();
+    try {
+      const session = sessionIdentity();
+      await clearSelectedPlayback();
+      if (isExtension) await deleteRecord(session.videoId);
+      if (!isCurrentSession(session)) return;
+      state.record = null;
+      state.notice = null;
+      elements.settingsDialog.close();
+      render();
+    } catch (error) { elements.settingsStatus.textContent = `清除失敗：${error.message}`; }
   });
   document.getElementById("clear-all").addEventListener("click", async () => {
     if (!confirm("確定清除全部本機歌單？此操作無法復原。")) return;
-    if (isExtension) await clearAllRecords();
-    state.record = null;
-    state.selectedEntryId = null;
-    elements.settingsDialog.close();
-    render();
+    try {
+      const session = sessionIdentity();
+      await clearSelectedPlayback();
+      if (isExtension) await clearAllRecords();
+      if (!isCurrentSession(session)) return;
+      state.record = null;
+      state.notice = null;
+      elements.settingsDialog.close();
+      render();
+    } catch (error) { elements.settingsStatus.textContent = `清除失敗：${error.message}`; }
   });
 }
 
@@ -688,8 +876,50 @@ function startDemoPlayback() {
   }, 250);
 }
 
+async function connectActiveTab() {
+  const epoch = ++state.connectionEpoch;
+  try {
+    const [tab] = await extensionApi.tabs.query({ active: true, currentWindow: true });
+    if (epoch !== state.connectionEpoch) return;
+    if (!Number.isInteger(tab?.id)) throw new Error("找不到目前分頁");
+    if (state.tabId !== tab.id) {
+      state.tabId = tab.id;
+      await switchContext(null);
+    }
+    const response = await activeTabMessage({ type: "GET_CONTEXT" });
+    if (epoch !== state.connectionEpoch) return;
+    const sameVideo = response.context?.videoId === state.context?.videoId;
+    await switchContext(response.context);
+    if (sameVideo && response.context?.videoId) await restorePlayback();
+  } catch (error) {
+    if (epoch !== state.connectionEpoch) return;
+    await switchContext(null);
+    setStatus(error.message, "error");
+  }
+}
+
+function handleRuntimeMessage(message, sender) {
+  // Runtime messages can originate from every YouTube tab. Only the tab this
+  // popup is attached to may replace its song list or playback state.
+  if (sender?.tab?.id !== state.tabId || (sender.frameId !== undefined && sender.frameId !== 0)) return;
+  if (message?.type === "PAGE_CONTEXT_CHANGED") {
+    reportTask(() => switchContext(message.context));
+  }
+  if (message?.type === "PLAYBACK_STATE") applyPlaybackState(message.state);
+}
+
+function updateVisualViewport() {
+  const viewport = window.visualViewport;
+  document.documentElement.style.setProperty("--visible-height", `${viewport?.height ?? window.innerHeight}px`);
+  document.documentElement.style.setProperty("--visible-top", `${viewport?.offsetTop ?? 0}px`);
+}
+
 async function initialize() {
   bindEvents();
+  updateVisualViewport();
+  window.visualViewport?.addEventListener("resize", updateVisualViewport);
+  window.visualViewport?.addEventListener("scroll", updateVisualViewport);
+  window.addEventListener("resize", updateVisualViewport);
   if (!isExtension) {
     state.context = {
       videoId: "demo-video",
@@ -710,21 +940,15 @@ async function initialize() {
     render();
     return;
   }
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type === "PAGE_CONTEXT_CHANGED") switchContext(message.context);
-    if (message?.type === "PLAYBACK_STATE" && message.state.videoId === state.context?.videoId) {
-      state.playback = message.state;
-      renderPlayer();
-    }
+  extensionApi.runtime.onMessage.addListener(handleRuntimeMessage);
+  extensionApi.tabs.onActivated?.addListener(() => { connectActiveTab(); });
+  extensionApi.tabs.onRemoved?.addListener((tabId) => {
+    if (tabId === state.tabId) connectActiveTab();
   });
-  try {
-    const response = await activeTabMessage({ type: "GET_CONTEXT" });
-    await switchContext(response.context);
-  } catch (error) {
-    state.context = null;
-    render();
-    setStatus(error.message, "error");
-  }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) connectActiveTab();
+  });
+  await connectActiveTab();
 }
 
-initialize();
+initialize().catch((error) => setStatus(error.message, "error"));

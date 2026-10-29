@@ -1,10 +1,17 @@
 {
   "name": "youtube-karaoke-setlist",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test": "node --test"
-  }
+    "test": "node --test",
+    "build": "node scripts/build-extension.mjs all",
+    "build:safari": "node scripts/build-extension.mjs safari",
+    "build:chrome": "node scripts/build-extension.mjs chrome",
+    "package:safari": "node scripts/package-extension.mjs safari",
+    "package:chrome": "node scripts/package-extension.mjs chrome",
+    "xcode:ios": "node scripts/create-ios-project.mjs"
+  },
+  "engines": { "node": ">=18.0.0" }
 }

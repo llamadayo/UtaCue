@@ -1,8 +1,21 @@
 # UtaCue
 
-UtaCue is a Chrome Manifest V3 Side Panel extension that turns timestamp lists from YouTube videos into browsable, editable, seekable, and single-song-loopable setlists.
+UtaCue is a Manifest V3 extension for the Chrome Side Panel and iPhone Safari popup that turns timestamp lists from YouTube videos into browsable, editable, seekable, and single-song-loopable setlists.
 
 It does not require the YouTube API, a backend, or a login. Timeline sources can come from the current video's description, comments already loaded on the page, or text pasted by the user.
+
+## iPhone Safari development preview (0.2.0)
+
+The Safari target adds mobile YouTube selectors, page-owned playback/loop state that survives closing the popup, restore-on-open, touch-friendly controls, and JSON file sharing/download. Desktop schema-version-1 backups remain compatible.
+
+```sh
+npm test
+npm run package:safari
+```
+
+The generated `dist/UtaCue-safari-0.2.0.zip` is a Web Extension resource bundle, not an installable IPA. On a Mac with Xcode, run `npm run xcode:ios` to generate an iOS project; choose your signing Team and install it on a device. Apple also provides a Safari Web Extension Packager in App Store Connect.
+
+See the [iPhone Safari installation and device-validation guide](docs/SAFARI_IOS.md) (Traditional Chinese). This is an unsigned development preview: real iPhone Safari rendering, YouTube DOM, file-picker/share-sheet lifecycle and playback have not yet been validated. Foreground playback is the target; background/lock-screen looping is not guaranteed. The screenshot below is the existing desktop reference.
 
 ## Screenshot
 
@@ -18,7 +31,7 @@ It does not require the YouTube API, a backend, or a login. Timeline sources can
 - Click an entry to seek and play it; songs can loop until the next song/chapter or the end of the video.
 - Classify entries as `song`, `chapter`, `note`, or `hidden`, and edit their titles, start times, and custom end times.
 - Show added, changed, and removed counts during a rescan while preserving existing manual edits.
-- Store each setlist in `chrome.storage.local`, keyed by the YouTube `videoId`.
+- Store each setlist in WebExtension `storage.local`, keyed by the YouTube `videoId`.
 - Export the current video's or all setlists as JSON, and import JSON backups.
 
 ## Tech Stack
@@ -32,7 +45,8 @@ It does not require the YouTube API, a backend, or a login. Timeline sources can
 ## Requirements
 
 - Chrome 114 or later, as specified by `minimum_chrome_version` in `manifest.json`.
-- A Node.js environment with support for `node:test` to run the tests. The repository does not declare an exact minimum Node.js version.
+- Node.js 18 or later for tests and packaging.
+- Safari target: iOS/Safari 16.4 or later is the development baseline; see the device-validation guide.
 
 ## Installation
 
@@ -76,6 +90,10 @@ Tests use Node.js's built-in test runner and require no additional test framewor
 | Command | Description |
 | --- | --- |
 | `npm test` | Run all Node.js tests |
+| `npm run build:safari` | Generate `dist/safari` with a Safari popup manifest |
+| `npm run package:safari` | Build and ZIP the Safari runtime resources |
+| `npm run build:chrome` | Build the Chrome version with its existing Side Panel |
+| `npm run xcode:ios` | Generate an iOS Xcode project on a Mac for signing and device testing |
 
 ## Project Structure
 
@@ -88,6 +106,10 @@ Tests use Node.js's built-in test runner and require no additional test framewor
 ├── sidepanel.css          # Side Panel styles and responsive layout
 ├── sidepanel.js           # UI state, interactions, scanning, editing, and backups
 ├── core.mjs               # Timestamp parsing, record building, merging, and validation
+├── extension-api.mjs      # Safari/Chrome API namespace adapter
+├── backup.mjs             # Validated JSON import and file-share/download export
+├── scripts/               # Separate browser builds, ZIP packaging and Xcode generator
+├── docs/SAFARI_IOS.md      # iPhone installation and manual acceptance steps
 ├── storage.mjs            # chrome.storage.local reads, writes, and backup operations
 ├── fallback-thumbnail.png # Fallback image when the video thumbnail is unavailable
 ├── utacue-icon.png        # Extension icon

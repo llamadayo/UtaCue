@@ -147,6 +147,49 @@ test("manual edits never leak between different comment authors", () => {
   assert.equal(merged.blocks[0].entries[0].manuallyEdited, false);
 });
 
+test("rescan retains a manual start-time correction larger than three seconds", () => {
+  let existing = buildRecord({
+    videoId: "video", durationSeconds: 100,
+    sources: [{ type: "comment", author: "@fan", rawText: "0:10 Song A\n0:50 Song B" }]
+  });
+  existing = updateEntry(existing, existing.blocks[0].entries[0].id, {
+    title: "Corrected Song A", startSeconds: 25, endSeconds: 45, kind: "chapter"
+  });
+  const incoming = buildRecord({
+    videoId: "video", durationSeconds: 100,
+    sources: [{ type: "comment", author: "@fan", rawText: "0:10 Song A\n0:50 Song B" }]
+  });
+  const merged = mergeRecords(existing, incoming);
+
+  assert.deepEqual(diffRecords(existing, incoming), { added: 0, removed: 0, changed: 0 });
+  assert.deepEqual(merged.overrides[merged.blocks[0].entries[0].id], {
+    title: "Corrected Song A", startSeconds: 25, endSeconds: 45, kind: "chapter"
+  });
+  assert.equal(merged.blocks[0].entries[0].manuallyEdited, true);
+});
+
+test("rescan source drift still uses a three-second limit around the captured source time", () => {
+  let existing = buildRecord({
+    videoId: "video", sources: [{ type: "comment", author: "@fan", rawText: "0:10 Song A" }]
+  });
+  existing = updateEntry(existing, existing.blocks[0].entries[0].id, {
+    title: "Corrected Song A", startSeconds: 25, endSeconds: 45
+  });
+
+  for (const [sourceTime, shouldRetain] of [["0:13", true], ["0:14", false]]) {
+    const incoming = buildRecord({
+      videoId: "video", sources: [{ type: "comment", author: "@fan", rawText: `${sourceTime} Song A` }]
+    });
+    const merged = mergeRecords(existing, incoming);
+    const first = merged.blocks[0].entries[0];
+    assert.equal(first.manuallyEdited, shouldRetain);
+    assert.equal(first.title, shouldRetain ? "Corrected Song A" : "Song A");
+    assert.deepEqual(diffRecords(existing, incoming), shouldRetain
+      ? { added: 0, removed: 0, changed: 1 }
+      : { added: 1, removed: 1, changed: 0 });
+  }
+});
+
 test("record and backup validation reject bad versions and times", () => {
   const record = buildRecord({ videoId: "video", sources: [{ type: "paste", rawText: "0:10 Song" }] });
   assert.equal(validateRecord(record).valid, true);
@@ -155,4 +198,168 @@ test("record and backup validation reject bad versions and times", () => {
   const invalid = structuredClone(record);
   invalid.blocks[0].entries[0].startSeconds = -1;
   assert.equal(validateRecord(invalid).valid, false);
+});
+
+function backupRecord() {
+  return buildRecord({
+    videoId: "video-a",
+    videoTitle: "歌回",
+    durationSeconds: 120,
+    sources: [{ type: "paste", rawText: "0:10 Song A\n0:50 Song B" }]
+  });
+}
+
+test("schema-1 JSON backups retain manual edits and usable boundaries after a round trip", () => {
+  let record = backupRecord();
+  const entryId = record.blocks[0].entries[0].id;
+  record = updateEntry(record, entryId, { title: "手動修正", startSeconds: 12, endSeconds: 48 });
+  const json = JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), records: [record] });
+  const restored = JSON.parse(json);
+
+  assert.deepEqual(validateBackup(restored), { valid: true, errors: [] });
+  assert.equal(restored.records[0].blocks[0].entries[0].title, "手動修正");
+  assert.equal(calculateEntryEnd(restored.records[0], entryId), 48);
+  assert.deepEqual(restored.records[0].overrides[entryId], {
+    title: "手動修正", startSeconds: 12, endSeconds: 48, kind: "song"
+  });
+  assert.equal(JSON.stringify(restored), json);
+});
+
+test("schema-1 records without an override index can still be imported and edited", () => {
+  const record = JSON.parse(JSON.stringify(backupRecord()));
+  delete record.overrides;
+  assert.equal(validateRecord(record).valid, true);
+
+  const entryId = record.blocks[0].entries[0].id;
+  const edited = updateEntry(record, entryId, { title: "Edited after import" });
+  assert.equal(edited.overrides[entryId].title, "Edited after import");
+  assert.equal(validateBackup({ schemaVersion: 1, records: [edited] }).valid, true);
+});
+
+test("re-pasting an identical source keeps one timeline and preserves earlier manual edits", () => {
+  let existing = backupRecord();
+  const entryId = existing.blocks[0].entries[0].id;
+  existing = updateEntry(existing, entryId, { title: "My Song A", endSeconds: 45 });
+  const repeatedSource = createSource({ type: "paste", rawText: "0:10 Song A\n0:50 Song B" });
+  const incoming = buildRecord({
+    videoId: existing.videoId,
+    durationSeconds: existing.durationSeconds,
+    sources: [...existing.sources, repeatedSource]
+  });
+  const merged = mergeRecords(existing, incoming);
+
+  assert.equal(merged.sources.length, 1);
+  assert.equal(merged.blocks.length, 1);
+  assert.equal(merged.blocks[0].entries.length, 2);
+  assert.equal(merged.blocks[0].entries[0].title, "My Song A");
+  assert.equal(calculateEntryEnd(merged, entryId), 45);
+  assert.deepEqual(diffRecords(existing, incoming), { added: 0, removed: 0, changed: 0 });
+  assert.equal(validateBackup(JSON.parse(JSON.stringify({ schemaVersion: 1, records: [merged] }))).valid, true);
+});
+
+test("malformed JSON record shapes are rejected without throwing", () => {
+  const mutations = [
+    (record) => { record.videoId = {}; },
+    (record) => { record.videoTitle = {}; },
+    (record) => { record.durationSeconds = "120"; },
+    (record) => { record.sources = {}; },
+    (record) => { record.sources = [null]; },
+    (record) => { record.sources[0].rawText = []; },
+    (record) => { record.sources[0].author = {}; },
+    (record) => { record.blocks = {}; },
+    (record) => { record.blocks = "invalid"; },
+    (record) => { record.blocks = [null]; },
+    (record) => { record.blocks[0].order = -1; },
+    (record) => { record.blocks[0].entries = {}; },
+    (record) => { record.blocks[0].entries = [null]; },
+    (record) => { record.blocks[0].entries = [[]]; },
+    (record) => { delete record.blocks[0].entries[0].id; },
+    (record) => { record.blocks[0].entries[0].originalText = {}; },
+    (record) => { record.blocks[0].entries[0].manuallyEdited = true; delete record.blocks[0].entries[0].originalText; },
+    (record) => { record.overrides = null; },
+    (record) => { record.overrides = []; }
+  ];
+  const malformed = [null, [], false, 1, "invalid", ...mutations.map((mutate) => {
+    const record = backupRecord();
+    mutate(record);
+    return record;
+  })];
+
+  for (const record of malformed) {
+    assert.doesNotThrow(() => validateRecord(record));
+    assert.equal(validateRecord(record).valid, false);
+    const payload = JSON.parse(JSON.stringify({ schemaVersion: 1, records: [record] }));
+    assert.doesNotThrow(() => validateBackup(payload));
+    assert.equal(validateBackup(payload).valid, false);
+  }
+  for (const payload of [null, [], {}, { schemaVersion: 1, records: {} }]) {
+    assert.doesNotThrow(() => validateBackup(payload));
+    assert.equal(validateBackup(payload).valid, false);
+  }
+});
+
+test("ambiguous record IDs and invalid references cannot enter a backup", () => {
+  const mutations = [
+    (record) => { record.sources.push(structuredClone(record.sources[0])); },
+    (record) => { record.blocks.push(structuredClone(record.blocks[0])); },
+    (record) => { record.blocks[0].entries.push(structuredClone(record.blocks[0].entries[0])); },
+    (record) => { record.blocks[0].entries[0].id = record.sources[0].id; },
+    (record) => { record.blocks[0].sourceId = "missing-source"; },
+    (record) => { record.activeSourceId = "missing-source"; },
+    (record) => { record.activeBlockId = "missing-block"; },
+    (record) => { record.activeSourceId = null; }
+  ];
+  for (const mutate of mutations) {
+    const record = backupRecord();
+    mutate(record);
+    assert.equal(validateBackup({ schemaVersion: 1, records: [record] }).valid, false);
+  }
+
+  const first = backupRecord();
+  const second = updateEntry(first, first.blocks[0].entries[0].id, { title: "Conflicting replacement" });
+  const result = validateBackup({ schemaVersion: 1, records: [first, second] });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(" "), /重複的 videoId/);
+});
+
+test("prototype-related keys are rejected and editing cannot invoke the prototype setter", () => {
+  for (const unsafeId of ["__proto__", "constructor", "prototype"]) {
+    const record = backupRecord();
+    record.blocks[0].entries[0].id = unsafeId;
+    assert.equal(validateRecord(record).valid, false);
+
+    const edited = updateEntry(record, unsafeId, { title: "Unsafe ID" });
+    assert.equal(Object.getPrototypeOf(edited.overrides), Object.prototype);
+    assert.equal(Object.hasOwn(edited.overrides, unsafeId), true);
+    assert.equal(validateRecord(edited).valid, false);
+
+    const unsafeRecord = backupRecord();
+    unsafeRecord.videoId = unsafeId;
+    assert.equal(validateRecord(unsafeRecord).valid, false);
+
+    const payload = JSON.parse(JSON.stringify({ schemaVersion: 1, records: [backupRecord()] }));
+    payload.records[0].overrides = Object.fromEntries([[unsafeId, { title: "Unsafe override" }]]);
+    assert.equal(validateBackup(payload).valid, false);
+  }
+
+  const recordWithUnsafeOwnKey = JSON.parse(JSON.stringify(backupRecord()).replace('{', '{"__proto__":{},'));
+  assert.equal(validateRecord(recordWithUnsafeOwnKey).valid, false);
+  assert.equal(validateRecord(Object.create(backupRecord())).valid, false);
+});
+
+test("invalid override shapes or references are rejected before later edits or rescans", () => {
+  const invalidOverrides = [
+    null, [], "invalid", { title: "" }, { startSeconds: -1 },
+    { startSeconds: null }, { endSeconds: "40" }, { endSeconds: 5 },
+    { kind: "unknown" }, JSON.parse('{"__proto__":{}}')
+  ];
+  for (const override of invalidOverrides) {
+    const record = backupRecord();
+    record.overrides[record.blocks[0].entries[0].id] = override;
+    assert.doesNotThrow(() => validateRecord(record));
+    assert.equal(validateRecord(record).valid, false);
+  }
+  const record = backupRecord();
+  record.overrides["missing-entry"] = { title: "No matching entry" };
+  assert.equal(validateRecord(record).valid, false);
 });

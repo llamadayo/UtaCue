@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>UtaCue</title>
     <link rel="stylesheet" href="sidepanel.css">
   </head>
@@ -49,7 +49,7 @@
         </div>
         <div class="status-row">
           <span class="status-dot" aria-hidden="true"></span>
-          <p id="status-message" role="status">尚未建立歌單</p>
+          <p id="status-message" role="status" aria-live="polite">尚未建立歌單</p>
           <label class="hidden-toggle"><input id="show-hidden" type="checkbox"> 顯示隱藏</label>
         </div>
       </section>
@@ -70,7 +70,7 @@
       <section class="player-panel" id="player-panel" aria-label="播放控制" hidden>
         <div class="now-playing-row">
           <div>
-            <p class="eyeline">播放中</p>
+            <p class="eyeline" id="playback-label">目前選曲</p>
             <h2 id="now-title">—</h2>
             <p id="now-range">--:-- — --:--</p>
           </div>
@@ -96,6 +96,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M5 6l9 6-9 6V6Z"/></svg>
           </button>
         </div>
+        <p class="playback-hint">循環開啟時，收起面板仍會持續；鎖屏或切換至背景時可能暫停。</p>
       </section>
 
       <footer class="app-footer">
@@ -111,31 +112,32 @@
       </footer>
     </main>
 
-    <dialog id="paste-dialog">
+    <dialog id="paste-dialog" aria-labelledby="paste-heading">
       <form method="dialog" id="paste-form">
         <div class="dialog-heading">
-          <div><p class="eyeline">手動來源</p><h2>貼上時間軸</h2></div>
+          <div><p class="eyeline">手動來源</p><h2 id="paste-heading">貼上時間軸</h2></div>
           <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit" formnovalidate><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
         </div>
         <label>來源名稱（選填）<input id="paste-author" type="text" placeholder="例如：@music_fan"></label>
         <label>時間軸文字<textarea id="paste-text" rows="13" required placeholder="4:05 歌曲名稱&#10;11:34 下一首歌"></textarea></label>
         <p class="form-hint">支援 m:ss、mm:ss 與 h:mm:ss；時間倒退時會自動建立附加區塊。</p>
+        <p class="form-hint error" id="paste-status" role="status" hidden></p>
         <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit" formnovalidate>取消</button><button class="primary-button" value="default" type="submit">建立歌單</button></div>
       </form>
     </dialog>
 
-    <dialog id="edit-dialog">
+    <dialog id="edit-dialog" aria-labelledby="edit-heading">
       <form method="dialog" id="edit-form">
         <div class="dialog-heading">
-          <div><p class="eyeline">時間軸項目</p><h2>編輯項目</h2></div>
-          <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+          <div><p class="eyeline">時間軸項目</p><h2 id="edit-heading">編輯項目</h2></div>
+          <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit" formnovalidate><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
         </div>
         <input id="edit-id" type="hidden">
         <label>標題<input id="edit-title" type="text" required></label>
         <div class="field-grid">
-          <label>開始時間<input id="edit-start" type="text" inputmode="numeric" required placeholder="08:42"></label>
+          <label>開始時間<input id="edit-start" type="text" autocapitalize="off" autocomplete="off" spellcheck="false" required placeholder="08:42"></label>
           <div class="end-time-field">
-            <label>自訂結束<input id="edit-end" type="text" inputmode="numeric" placeholder="留白為自動"></label>
+            <label>自訂結束<input id="edit-end" type="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="留白為自動"></label>
             <button class="secondary-button capture-time-button" id="edit-end-current" type="button">使用目前播放時間</button>
           </div>
         </div>
@@ -150,23 +152,23 @@
           </div>
         </fieldset>
         <p class="form-hint">段落會結束前一首歌；註記只供跳轉，不影響循環界線。</p>
-        <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit">取消</button><button class="primary-button" value="default" type="submit">儲存變更</button></div>
+        <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit" formnovalidate>取消</button><button class="primary-button" value="default" type="submit">儲存變更</button></div>
       </form>
     </dialog>
 
-    <dialog id="diff-dialog">
+    <dialog id="diff-dialog" aria-labelledby="diff-heading">
       <form method="dialog" id="diff-form">
-        <div class="dialog-heading"><div><p class="eyeline">重新掃描</p><h2>套用掃描結果？</h2></div></div>
+        <div class="dialog-heading"><div><p class="eyeline">重新掃描</p><h2 id="diff-heading">套用掃描結果？</h2></div></div>
         <p class="dialog-copy">人工修改的標題、類型與時間會保留。</p>
         <div class="diff-grid"><div><strong id="diff-added">0</strong><span>新增</span></div><div><strong id="diff-changed">0</strong><span>變更</span></div><div><strong id="diff-removed">0</strong><span>移除</span></div></div>
         <div class="dialog-actions"><button class="secondary-button" value="cancel" type="submit">保留目前歌單</button><button class="primary-button" value="default" type="submit">套用更新</button></div>
       </form>
     </dialog>
 
-    <dialog id="settings-dialog">
+    <dialog id="settings-dialog" aria-labelledby="settings-heading">
       <form method="dialog" id="settings-form">
         <div class="dialog-heading">
-          <div><p class="eyeline">本機資料</p><h2>設定與備份</h2></div>
+          <div><p class="eyeline">本機資料</p><h2 id="settings-heading">設定與備份</h2></div>
           <button class="icon-button dialog-close" value="cancel" aria-label="關閉" type="submit"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
         </div>
         <section class="settings-section"><h3>JSON 備份</h3><p>歌單只存在這台瀏覽器。可匯出備份或分享整理結果。</p><div class="button-row"><button class="secondary-button" id="export-current" type="button">匯出目前影片</button><button class="secondary-button" id="export-all" type="button">匯出全部</button></div><label class="file-button">匯入 JSON<input id="import-file" type="file" accept="application/json,.json"></label></section>

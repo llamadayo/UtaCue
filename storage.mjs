@@ -1,9 +1,10 @@
 import { SCHEMA_VERSION, validateBackup, validateRecord } from "./core.mjs";
+import { getExtensionApi } from "./extension-api.mjs";
 
 const PREFIX = "setlist:";
 
 function storageArea() {
-  return globalThis.chrome?.storage?.local ?? null;
+  return getExtensionApi()?.storage?.local ?? null;
 }
 
 export async function loadRecord(videoId) {
@@ -11,7 +12,9 @@ export async function loadRecord(videoId) {
   if (!area || !videoId) return null;
   const key = `${PREFIX}${videoId}`;
   const result = await area.get(key);
-  return result[key] ?? null;
+  const record = result[key] ?? null;
+  if (record && !validateRecord(record).valid) throw new Error("這部影片的本機歌單格式無效，請從 JSON 備份重新匯入");
+  return record;
 }
 
 export async function saveRecord(record) {
@@ -56,8 +59,7 @@ export async function importBackup(payload) {
   const validation = validateBackup(payload);
   if (!validation.valid) throw new Error(validation.errors.join("\n"));
   const area = storageArea();
-  if (area) {
-    await area.set(Object.fromEntries(payload.records.map((record) => [`${PREFIX}${record.videoId}`, record])));
-  }
+  if (!area) throw new Error("目前無法存取擴充功能的本機儲存空間");
+  await area.set(Object.fromEntries(payload.records.map((record) => [`${PREFIX}${record.videoId}`, record])));
   return payload.records.length;
 }

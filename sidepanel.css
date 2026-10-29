@@ -195,3 +195,80 @@ textarea { min-height: 190px; margin-top: 7px; padding: 12px; resize: vertical; 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* The same page is a desktop side panel and an iPhone Safari popup sheet. */
+html, body { min-width: 280px; }
+body { -webkit-text-size-adjust: 100%; }
+button, .file-button, .switch-label, .hidden-toggle { touch-action: manipulation; }
+button:disabled { cursor: default; opacity: .55; }
+.app-shell {
+  height: 100dvh;
+  min-height: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.icon-button, .edit-row, .transport-button { width: 44px; height: 44px; flex-shrink: 0; }
+.text-button, .source-trigger, .source-option, .hidden-toggle,
+.primary-button, .secondary-button, .danger-button, .file-button,
+.kind-option span, .switch-label, .secondary-block summary button { min-height: 44px; }
+.source-row { grid-template-columns: minmax(0, 1fr) 44px; }
+.source-trigger { height: 44px; }
+.status-row { align-items: flex-start; flex-wrap: wrap; }
+.status-dot { flex: 0 0 8px; margin-top: 5px; }
+#status-message { flex-basis: calc(100% - 20px); white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.hidden-toggle { margin-left: 16px; }
+.status-row.error #status-message, .form-hint.error { color: var(--danger); }
+.timeline-row { grid-template-columns: 72px minmax(0, 1fr) 44px; padding-right: 10px; }
+.row-main { min-height: 66px; }
+.secondary-block summary { gap: 8px; flex-wrap: wrap; }
+.secondary-block summary button { border: 0; border-radius: 6px; padding: 6px 10px; background: var(--surface-raised); color: var(--lavender); }
+.now-playing-row > div { min-width: 0; flex: 1; }
+.now-playing-row h2 { max-width: 100%; }
+.switch-label { flex-shrink: 0; }
+.switch-label input:focus-visible + .switch { outline: 2px solid var(--lavender); outline-offset: 4px; }
+.switch-label input:disabled + .switch { opacity: .5; }
+.progress-row { grid-template-columns: max-content minmax(0, 1fr) max-content; margin-top: 4px; }
+#progress { height: 44px; }
+.transport { margin-top: 0; }
+.playback-hint { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.empty-actions { flex-wrap: wrap; justify-content: center; }
+dialog {
+  max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  max-height: calc(var(--visible-height, 100dvh) - 24px);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+form input[type="text"], textarea { font-size: 16px; min-height: 44px; }
+.dialog-actions { flex-wrap: wrap; }
+.dialog-actions button { flex: 1 1 110px; }
+.file-button { position: relative; }
+.file-button:focus-within { outline: 2px solid var(--lavender); outline-offset: 3px; }
+#paste-status { margin-top: 10px; }
+
+@media (max-width: 350px) {
+  .app-header, .source-panel { padding-inline: 12px; }
+  .video-meta { padding: 12px; grid-template-columns: 86px minmax(0, 1fr); gap: 10px; min-height: 94px; }
+  .video-meta img { width: 86px; }
+  .video-copy h2 { font-size: 15px; }
+  .timeline-row { grid-template-columns: 58px minmax(0, 1fr) 44px; padding-left: 12px; gap: 6px; }
+  .row-main { grid-template-columns: 58px minmax(0, 1fr); gap: 6px; }
+  .player-panel { padding-inline: 12px; }
+  dialog form { padding: 16px; }
+}
+
+@media (pointer: coarse) {
+  dialog[open] {
+    position: fixed;
+    top: calc(var(--visible-top, 0px) + 12px);
+    bottom: auto;
+    margin-block: 0;
+  }
+}
+
+@media (max-height: 650px) {
+  .app-shell { height: auto; min-height: 100dvh; overflow: visible; }
+  .timeline-region { min-height: 150px; max-height: 42dvh; }
+  .empty-state { min-height: 220px; padding-block: 20px; }
+}

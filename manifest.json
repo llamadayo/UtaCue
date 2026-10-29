@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "UtaCue",
   "description": "從 YouTube 說明欄、已載入留言或貼上的文字建立可循環播放的歌枠 Setlist。",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minimum_chrome_version": "114",
   "icons": {
     "16": "utacue-icon.png",
@@ -11,7 +11,7 @@
     "128": "utacue-icon.png"
   },
   "permissions": ["sidePanel", "storage"],
-  "host_permissions": ["https://www.youtube.com/*"],
+  "host_permissions": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -27,7 +27,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/watch*"],
+      "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

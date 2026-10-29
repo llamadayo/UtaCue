@@ -1,7 +1,10 @@
-chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-});
+const extension = globalThis.browser ?? globalThis.chrome;
 
-chrome.runtime.onStartup.addListener(async () => {
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-});
+async function configureSidePanel() {
+  if (extension?.sidePanel?.setPanelBehavior) {
+    await extension.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  }
+}
+
+extension?.runtime?.onInstalled.addListener(configureSidePanel);
+extension?.runtime?.onStartup.addListener(configureSidePanel);

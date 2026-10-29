@@ -1,8 +1,21 @@
 # UtaCue
 
-UtaCue 是一個 Chrome Manifest V3 Side Panel 擴充功能，將 YouTube 影片的歌枠時間戳整理成可瀏覽、可編輯、可跳轉與可單曲循環的 Setlist。
+UtaCue 是一個 Manifest V3 擴充功能，提供 Chrome Side Panel 與 iPhone Safari 彈出面板，將 YouTube 影片的歌枠時間戳整理成可瀏覽、可編輯、可跳轉與可單曲循環的 Setlist。
 
 它不需要 YouTube API、後端或登入。時間軸來源可以是目前影片的說明欄、已載入的留言，或使用者手動貼上的文字。
+
+## iPhone Safari 第一版（0.2.0）
+
+已加入 Safari 專用打包、手機 YouTube 頁面適配、popup 關閉／重開的播放狀態恢復，以及手機 JSON 檔案分享／下載。核心資料仍是桌面版的 `schemaVersion: 1`。
+
+```sh
+npm test
+npm run package:safari
+```
+
+在安裝 Xcode 的 Mac 上，可執行 `npm run xcode:ios` 產生 iOS 專案；也可把產生的 ZIP 交給 App Store Connect 的 Safari Web Extension Packager。完整安裝方式、簽署需求與真機驗收步驟請見 [iPhone Safari 指南](docs/SAFARI_IOS.md)。
+
+目前是可打包的開發版，尚未完成 iPhone Safari 真機驗收，也未簽署或上架。播放限定 Safari 裡的 YouTube，前景區段循環不保證在鎖屏／背景持續。下方舊版截圖為桌面介面參考。
 
 ## 畫面預覽
 
@@ -18,7 +31,7 @@ UtaCue 是一個 Chrome Manifest V3 Side Panel 擴充功能，將 YouTube 影片
 - 點擊項目即可跳轉並播放；歌曲支援循環播放至下一首歌曲／段落或影片結束。
 - 以「歌曲」、「段落」、「註記」或「隱藏」標記項目，並可修改標題、開始時間與自訂結束時間。
 - 重新掃描時顯示新增、變更、移除數量，並保留既有的人工修改。
-- 依 YouTube `videoId` 將歌單儲存在 `chrome.storage.local`。
+- 依 YouTube `videoId` 將歌單儲存在 WebExtension `storage.local`。
 - 從設定匯出目前影片或全部歌單的 JSON，也可以匯入 JSON 備份。
 
 ## 技術堆疊
@@ -32,7 +45,8 @@ UtaCue 是一個 Chrome Manifest V3 Side Panel 擴充功能，將 YouTube 影片
 ## 需求
 
 - Chrome 114 或更新版本（由 `manifest.json` 的 `minimum_chrome_version` 指定）。
-- 若要執行測試，需要可使用 `node:test` 的 Node.js 環境。
+- 執行測試與打包需要 Node.js 18 或更新版本。
+- Safari 版以 iOS／Safari 16.4 為開發相容性基線，真機驗收方式見上方指南。
 
 ## 安裝與載入
 
@@ -76,6 +90,10 @@ npm test
 | 指令 | 說明 |
 | --- | --- |
 | `npm test` | 執行全部 Node.js 測試 |
+| `npm run build:safari` | 產生 Safari 專用 `dist/safari` |
+| `npm run package:safari` | 產生 Safari extension ZIP |
+| `npm run build:chrome` | 產生保留 Side Panel 的 Chrome 版本 |
+| `npm run xcode:ios` | 在 Mac 產生供簽署與真機測試的 iOS Xcode 專案 |
 
 ## 專案結構
 
@@ -88,6 +106,10 @@ npm test
 ├── sidepanel.css          # Side Panel 樣式與響應式版面
 ├── sidepanel.js           # UI 狀態、互動、掃描、編輯與備份流程
 ├── core.mjs               # 時間戳解析、歌單建立、合併與驗證
+├── extension-api.mjs      # Safari／Chrome API 命名空間適配
+├── backup.mjs             # JSON 驗證、手機分享與下載
+├── scripts/               # 分瀏覽器建置、ZIP 打包與 Xcode 專案產生
+├── docs/SAFARI_IOS.md      # iPhone 安裝與真機驗收指南
 ├── storage.mjs            # chrome.storage.local 讀寫與備份操作
 ├── fallback-thumbnail.png # 無法取得影片縮圖時使用的預設圖片
 ├── utacue-icon.png        # 擴充功能圖示

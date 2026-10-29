@@ -2,6 +2,18 @@ export const SCHEMA_VERSION = 1;
 export const ENTRY_KINDS = new Set(["song", "chapter", "note", "hidden"]);
 
 const TIMESTAMP_PATTERN = /(^|[^\d])(\d{1,3}):([0-5]\d)(?::([0-5]\d))?(?!\d)/;
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function isDataObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return (prototype === Object.prototype || prototype === null)
+    && !Object.keys(value).some((key) => UNSAFE_KEYS.has(key));
+}
+
+function isIdentifier(value) {
+  return typeof value === "string" && Boolean(value.trim()) && !UNSAFE_KEYS.has(value);
+}
 
 export function hashText(value) {
   let hash = 2166136261;
@@ -116,9 +128,17 @@ export function createSource({ type, rawText, author = "", capturedAt = new Date
 }
 
 export function buildRecord({ videoId, videoTitle = "", channelName = "", durationSeconds = null, sources = [] }) {
+  const sourceIds = new Set();
   const normalizedSources = sources
     .filter((source) => source?.rawText?.trim())
-    .map((source) => source.id ? source : createSource(source));
+    .map((source) => source.id ? source : createSource(source))
+    .filter((source) => {
+      // Re-pasting the same text produces the same deterministic source ID.
+      // Keep one source so its blocks and entries also remain unambiguous.
+      if (sourceIds.has(source.id)) return false;
+      sourceIds.add(source.id);
+      return true;
+    });
   const blocks = normalizedSources.flatMap((source) => parseTimeline(source.rawText, source.id));
   const candidates = normalizedSources.map((source) => {
     const sourceBlocks = blocks.filter((block) => block.sourceId === source.id);
@@ -179,7 +199,12 @@ function matchEntry(oldRecord, oldBlockOrder, incomingEntry, incomingSource) {
     if (source?.type !== incomingSource?.type || (source?.author ?? "") !== (incomingSource?.author ?? "")) continue;
     for (const entry of block.entries) {
       const oldTitleKey = normalizeTitle(entry.originalTitle || entry.title);
-      const timeDelta = Math.abs(entry.startSeconds - incomingEntry.startSeconds);
+      // Match against the captured source time, not the user's corrected cue.
+      // Otherwise an edit larger than the source-drift tolerance disappears
+      // when the unchanged source is scanned again.
+      const original = entry.manuallyEdited && typeof entry.originalText === "string"
+        ? parseLine(entry.originalText) : null;
+      const timeDelta = Math.abs((original?.startSeconds ?? entry.startSeconds) - incomingEntry.startSeconds);
       if (oldTitleKey === titleKey && timeDelta <= 3 && (!best || timeDelta < best.timeDelta)) {
         best = { entry, timeDelta };
       }
@@ -247,24 +272,72 @@ export function updateEntry(record, entryId, patch) {
     if (Object.hasOwn(patch, key)) found.entry[key] = patch[key];
   }
   found.entry.manuallyEdited = true;
-  copy.overrides[entryId] = Object.fromEntries(allowed.map((key) => [key, found.entry[key]]));
+  copy.overrides = {
+    ...copy.overrides,
+    [entryId]: Object.fromEntries(allowed.map((key) => [key, found.entry[key]]))
+  };
   copy.updatedAt = new Date().toISOString();
   return copy;
 }
 
 export function validateRecord(record) {
   const errors = [];
-  if (!record || typeof record !== "object") return { valid: false, errors: ["資料必須是物件"] };
+  if (!isDataObject(record)) return { valid: false, errors: ["資料必須是有效物件"] };
   if (record.schemaVersion !== SCHEMA_VERSION) errors.push("不支援的 schemaVersion");
-  if (typeof record.videoId !== "string" || !record.videoId) errors.push("缺少 videoId");
+  if (!isIdentifier(record.videoId)) errors.push("videoId 無效");
+  for (const key of ["videoTitle", "channelName", "scannedAt", "updatedAt"]) {
+    if (record[key] !== undefined && typeof record[key] !== "string") errors.push(`${key} 必須是文字`);
+  }
+  if (record.durationSeconds !== undefined && record.durationSeconds !== null
+    && (!Number.isFinite(record.durationSeconds) || record.durationSeconds < 0)) {
+    errors.push("影片長度無效");
+  }
   if (!Array.isArray(record.sources)) errors.push("sources 必須是陣列");
   if (!Array.isArray(record.blocks)) errors.push("blocks 必須是陣列");
-  for (const block of record.blocks ?? []) {
+  const sources = Array.isArray(record.sources) ? record.sources : [];
+  const blocks = Array.isArray(record.blocks) ? record.blocks : [];
+  const allIds = new Set();
+  const sourceIds = new Set();
+  const blockIds = new Set();
+  const entriesById = new Map();
+  const registerId = (id, label) => {
+    if (!isIdentifier(id)) errors.push(`${label} id 無效`);
+    else if (allIds.has(id)) errors.push("同一份歌單的 id 不可重複");
+    else allIds.add(id);
+  };
+
+  for (const source of sources) {
+    if (!isDataObject(source)) {
+      errors.push("source 必須是有效物件");
+      continue;
+    }
+    registerId(source.id, "source");
+    if (isIdentifier(source.id)) sourceIds.add(source.id);
+    if (typeof source.type !== "string" || !source.type.trim()) errors.push("來源類型無效");
+    if (typeof source.rawText !== "string") errors.push("來源文字無效");
+    if (source.author !== undefined && typeof source.author !== "string") errors.push("來源作者無效");
+  }
+
+  for (const block of blocks) {
+    if (!isDataObject(block)) {
+      errors.push("block 必須是有效物件");
+      continue;
+    }
+    registerId(block.id, "block");
+    if (isIdentifier(block.id)) blockIds.add(block.id);
+    if (!sourceIds.has(block.sourceId)) errors.push("block 的來源不存在");
+    if (!Number.isInteger(block.order) || block.order < 0) errors.push("block 順序無效");
     if (!Array.isArray(block.entries)) {
       errors.push("block.entries 必須是陣列");
       continue;
     }
     for (const entry of block.entries) {
+      if (!isDataObject(entry)) {
+        errors.push("entry 必須是有效物件");
+        continue;
+      }
+      registerId(entry.id, "entry");
+      if (isIdentifier(entry.id)) entriesById.set(entry.id, entry);
       if (typeof entry.title !== "string" || !entry.title.trim()) errors.push("項目標題不可為空");
       if (!Number.isFinite(entry.startSeconds) || entry.startSeconds < 0) errors.push("項目開始時間無效");
       if (entry.endSeconds !== null && entry.endSeconds !== undefined
@@ -272,16 +345,61 @@ export function validateRecord(record) {
         errors.push("項目結束時間無效");
       }
       if (!ENTRY_KINDS.has(entry.kind)) errors.push("項目類型無效");
+      if (entry.manuallyEdited !== undefined && typeof entry.manuallyEdited !== "boolean") errors.push("項目編輯狀態無效");
+      if (entry.originalTitle !== undefined && typeof entry.originalTitle !== "string") errors.push("項目原始標題無效");
+      if ((entry.originalText !== undefined || entry.manuallyEdited === true)
+        && typeof entry.originalText !== "string") errors.push("項目原始文字無效");
+    }
+  }
+
+  if (record.activeSourceId !== undefined && record.activeSourceId !== null
+    && !sourceIds.has(record.activeSourceId)) errors.push("選取的來源不存在");
+  if (record.activeBlockId !== undefined && record.activeBlockId !== null) {
+    if (!blockIds.has(record.activeBlockId)) errors.push("選取的時間軸不存在");
+    else if (blocks.find((block) => isDataObject(block) && block.id === record.activeBlockId)?.sourceId !== record.activeSourceId) {
+      errors.push("選取的時間軸與來源不一致");
+    }
+  }
+
+  // Older schema-1 records may omit the override index; edits rebuild it.
+  if (record.overrides !== undefined) {
+    if (!isDataObject(record.overrides)) errors.push("overrides 必須是有效物件");
+    else {
+      for (const [entryId, override] of Object.entries(record.overrides)) {
+        const entry = entriesById.get(entryId);
+        if (!entry) errors.push("overrides 的項目不存在");
+        if (!isDataObject(override)) {
+          errors.push("override 必須是有效物件");
+          continue;
+        }
+        if (Object.hasOwn(override, "title")
+          && (typeof override.title !== "string" || !override.title.trim())) errors.push("override 標題無效");
+        if (Object.hasOwn(override, "startSeconds")
+          && (!Number.isFinite(override.startSeconds) || override.startSeconds < 0)) errors.push("override 開始時間無效");
+        const startSeconds = override.startSeconds ?? entry?.startSeconds;
+        if (override.endSeconds !== undefined && override.endSeconds !== null
+          && (!Number.isFinite(override.endSeconds) || override.endSeconds <= startSeconds)) errors.push("override 結束時間無效");
+        if (Object.hasOwn(override, "kind") && !ENTRY_KINDS.has(override.kind)) errors.push("override 類型無效");
+      }
     }
   }
   return { valid: errors.length === 0, errors: [...new Set(errors)] };
 }
 
 export function validateBackup(payload) {
-  if (!payload || typeof payload !== "object" || payload.schemaVersion !== SCHEMA_VERSION) {
+  if (!isDataObject(payload) || payload.schemaVersion !== SCHEMA_VERSION) {
     return { valid: false, errors: ["備份版本不支援"] };
   }
   if (!Array.isArray(payload.records)) return { valid: false, errors: ["備份缺少 records"] };
-  const errors = payload.records.flatMap((record) => validateRecord(record).errors.map((error) => `${record?.videoId ?? "unknown"}: ${error}`));
+  const errors = [];
+  const videoIds = new Set();
+  for (const record of payload.records) {
+    const label = typeof record?.videoId === "string" ? record.videoId : "unknown";
+    errors.push(...validateRecord(record).errors.map((error) => `${label}: ${error}`));
+    if (isIdentifier(record?.videoId)) {
+      if (videoIds.has(record.videoId)) errors.push(`${label}: 備份不可包含重複的 videoId`);
+      videoIds.add(record.videoId);
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
